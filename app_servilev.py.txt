@@ -1,0 +1,44 @@
+import streamlit as st
+import pandas as pd
+
+# Configuración de la página (El sello de la empresa)
+st.set_page_config(page_title="Servilev - Gestión CGE", page_icon="🏗️")
+
+st.title("🏗️ Servilev: Control de Bodega CGE")
+st.sidebar.header("Panel de Control")
+
+# 1. Base de datos temporal (Esto simula lo que hay en bodega)
+if 'inventario' not in st.session_state:
+    data = {
+        'Producto': ['Cable Cobre 50mm', 'Transformador 15kVA', 'Aislador Polimérico', 'Poste Hormigón'],
+        'Stock': [500, 10, 150, 25],
+        'Unidad': ['Metros', 'Unidades', 'Unidades', 'Unidades']
+    }
+    st.session_state.inventario = pd.DataFrame(data)
+
+# 2. Visualización para los otros computadores
+st.subheader("Estado Actual de Inventario")
+st.table(st.session_state.inventario)
+
+# 3. Formulario de Operaciones (Lo que harán los otros dos PCs)
+st.write("---")
+st.subheader("Registrar Movimiento (Entrada/Salida)")
+
+with st.form("formulario_movimiento"):
+    opcion = st.selectbox("Seleccione Producto", st.session_state.inventario['Producto'])
+    tipo = st.radio("Tipo de movimiento", ["Salida (Despacho)", "Entrada (Abastecimiento)"])
+    cantidad = st.number_input("Cantidad", min_value=1, step=1)
+    boton = st.form_submit_state = st.form_submit_button("Confirmar Operación")
+
+    if boton:
+        # Lógica para actualizar el stock
+        idx = st.session_state.inventario.index[st.session_state.inventario['Producto'] == opcion][0]
+        if tipo == "Salida (Despacho)":
+            st.session_state.inventario.at[idx, 'Stock'] -= cantidad
+            st.success(f"✅ Salida registrada: {cantidad} de {opcion}")
+        else:
+            st.session_state.inventario.at[idx, 'Stock'] += cantidad
+            st.success(f"📩 Entrada registrada: {cantidad} de {opcion}")
+        
+        # Refrescar la tabla
+        st.rerun()
