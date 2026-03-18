@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from database import conectar
 
+
 def cargar_excel_inventario(bodega):
 
     st.subheader(f"Cargar Excel Inventario - Bodega {bodega}")
@@ -13,27 +14,31 @@ def cargar_excel_inventario(bodega):
     if archivo is None:
         return
 
+    # -------------------------
+    # LEER EXCEL
+    # -------------------------
+
     try:
         xls = pd.ExcelFile(archivo)
         hojas = xls.sheet_names
     except Exception as e:
-        st.error(f"Error al abrir el archivo Excel: {e}")
+        st.error(f"Error al abrir Excel: {e}")
         return
 
-    hoja_seleccionada = st.selectbox("Seleccionar hoja del Excel", hojas)
+    hoja = st.selectbox("Seleccionar hoja", hojas)
 
     try:
-        df = pd.read_excel(archivo, sheet_name=hoja_seleccionada)
+        df = pd.read_excel(archivo, sheet_name=hoja)
     except Exception as e:
-        st.error(f"Error al leer la hoja seleccionada: {e}")
+        st.error(f"Error leyendo hoja: {e}")
         return
 
-    df.columns = [str(col).strip() for col in df.columns]
+    df.columns = [str(c).strip() for c in df.columns]
 
-    st.write("Vista previa del archivo:")
-    st.dataframe(df.head(10), use_container_width=True)
+    st.write("Vista previa")
+    st.dataframe(df.head())
 
-    columnas_esperadas = [
+    columnas = [
         "Reserva",
         "Material",
         "Texto material",
@@ -43,53 +48,54 @@ def cargar_excel_inventario(bodega):
         "Ctd.faltante"
     ]
 
-    faltantes = [col for col in columnas_esperadas if col not in df.columns]
-
-    if faltantes:
-        st.error(f"Faltan columnas en el Excel: {', '.join(faltantes)}")
-        return
+    for col in columnas:
+        if col not in df.columns:
+            st.error(f"Falta columna: {col}")
+            return
 
     # -------------------------
-    # RESUMEN DEL EXCEL
+    # RESUMEN
     # -------------------------
 
-    total_filas_excel = len(df)
+    total = len(df)
 
-    df_validacion = df.copy()
-    df_validacion["Material"] = df_validacion["Material"].astype(str).str.strip()
-    df_validacion["Reserva"] = df_validacion["Reserva"].astype(str).str.strip()
+    df["Material"] = df["Material"].astype(str).str.strip()
+    df["Reserva"] = df["Reserva"].astype(str).str.strip()
 
-    filas_vacias_material = (
-        (df_validacion["Material"] == "") |
-        (df_validacion["Material"].str.lower() == "nan")
-    ).sum()
+    validas = df[df["Material"] != ""]
+    materiales_unicos = validas["Material"].nunique()
 
-    filas_validas = total_filas_excel - filas_vacias_material
+    col1, col2 = st.columns(2)
 
-    materiales_unicos = df_validacion.loc[
-        (~df_validacion["Material"].isin(["", "nan", "NaN"])),
-        "Material"
-    ].nunique()
+    col1.metric("Filas Excel", total)
+    col2.metric("Materiales únicos", materiales_unicos)
 
-    repetidos = df_validacion.loc[
-        (~df_validacion["Material"].isin(["", "nan", "NaN"]))
-    ].duplicated(subset=["Reserva", "Material"], keep=False).sum()
+    # -------------------------
+    # CONSOLIDAR
+    # -------------------------
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Filas Excel", int(total_filas_excel))
-    col2.metric("Filas válidas", int(filas_validas))
-    col3.metric("Materiales únicos", int(materiales_unicos))
-    col4.metric("Filas sin material", int(filas_vacias_material))
+    df = df.groupby(
+        ["Reserva", "Material", "Texto material", "Unidad"],
+        as_index=False
+    ).agg({
+        "Cantidad necesaria": "sum",
+        "Cantidad tomada": "sum",
+        "Ctd.faltante": "sum"
+    })
 
-    if repetidos > 0:
-        st.warning(f"Hay {int(repetidos)} filas repetidas por Reserva + Material.")
+    st.write("Después de consolidar:")
+    st.dataframe(df)
 
     st.divider()
 
-    if st.button("Cargar datos al sistema"):
+    # -------------------------
+    # GUARDAR
+    # -------------------------
+
+    if st.button("Cargar al inventario"):
 
         if proyecto.strip() == "":
-            st.warning("Debes ingresar el proyecto")
+            st.warning("Ingrese proyecto")
             return
 
         conn = conectar()
@@ -97,56 +103,29 @@ def cargar_excel_inventario(bodega):
 
         insertados = 0
         actualizados = 0
-        omitidos = 0
-
-        detalle_omitidos = []
 
         try:
-            for i, row in df.iterrows():
 
-                reserva = str(row.get("Reserva", "")).strip()
-                material = str(row.get("Material", "")).strip()
-                texto_material = str(row.get("Texto material", "")).strip()
-                unidad = str(row.get("Unidad", "")).strip()
+            for _, row in df.iterrows():
 
-                cantidad_necesaria = row.get("Cantidad necesaria", 0)
-                cantidad_tomada = row.get("Cantidad tomada", 0)
-                ctd_faltante = row.get("Ctd.faltante", 0)
+                reserva = str(row["Reserva"]).strip()
+                material = str(row["Material"]).strip()
+                texto = str(row["Texto material"]).strip()
+                unidad = str(row["Unidad"]).strip()
 
-                if pd.isna(cantidad_necesaria):
-                    cantidad_necesaria = 0
-                if pd.isna(cantidad_tomada):
-                    cantidad_tomada = 0
-                if pd.isna(ctd_faltante):
-                    ctd_faltante = 0
+                necesaria = int(row["Cantidad necesaria"])
+                tomada = int(row["Cantidad tomada"])
+                faltante = int(row["Ctd.faltante"])
 
-                try:
-                    cantidad_necesaria = int(float(cantidad_necesaria))
-                except:
-                    cantidad_necesaria = 0
-
-                try:
-                    cantidad_tomada = int(float(cantidad_tomada))
-                except:
-                    cantidad_tomada = 0
-
-                try:
-                    ctd_faltante = int(float(ctd_faltante))
-                except:
-                    ctd_faltante = 0
-
-                if material == "" or material.lower() == "nan":
-                    omitidos += 1
-                    detalle_omitidos.append({
-                        "Fila Excel": i + 2,
-                        "Motivo": "Material vacío"
-                    })
-                    continue
+                # verificar si existe
 
                 c.execute("""
                     SELECT id
                     FROM inventario
-                    WHERE proyecto=%s AND reserva=%s AND material=%s AND bodega=%s
+                    WHERE proyecto=%s
+                    AND reserva=%s
+                    AND material=%s
+                    AND bodega=%s
                 """, (
                     proyecto,
                     reserva,
@@ -157,6 +136,7 @@ def cargar_excel_inventario(bodega):
                 existe = c.fetchone()
 
                 if existe:
+
                     c.execute("""
                         UPDATE inventario
                         SET texto_material=%s,
@@ -166,50 +146,57 @@ def cargar_excel_inventario(bodega):
                             ctd_faltante=%s
                         WHERE id=%s
                     """, (
-                        texto_material,
+                        texto,
                         unidad,
-                        cantidad_necesaria,
-                        cantidad_tomada,
-                        ctd_faltante,
+                        necesaria,
+                        tomada,
+                        faltante,
                         existe[0]
                     ))
+
                     actualizados += 1
 
                 else:
+
                     c.execute("""
                         INSERT INTO inventario
-                        (proyecto, reserva, material, texto_material, unidad,
-                         cantidad_necesaria, cantidad_tomada, ctd_faltante, bodega)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        (
+                            proyecto,
+                            reserva,
+                            material,
+                            texto_material,
+                            unidad,
+                            cantidad_necesaria,
+                            cantidad_tomada,
+                            ctd_faltante,
+                            bodega
+                        )
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """, (
                         proyecto,
                         reserva,
                         material,
-                        texto_material,
+                        texto,
                         unidad,
-                        cantidad_necesaria,
-                        cantidad_tomada,
-                        ctd_faltante,
+                        necesaria,
+                        tomada,
+                        faltante,
                         bodega
                     ))
+
                     insertados += 1
 
             conn.commit()
 
-            st.success("Excel cargado correctamente ✅")
+            st.success("Excel cargado correctamente")
 
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Insertados", int(insertados))
-            c2.metric("Actualizados", int(actualizados))
-            c3.metric("Omitidos", int(omitidos))
-
-            if detalle_omitidos:
-                st.write("Detalle de filas omitidas:")
-                st.dataframe(pd.DataFrame(detalle_omitidos), use_container_width=True)
+            st.write("Insertados:", insertados)
+            st.write("Actualizados:", actualizados)
 
         except Exception as e:
+
             conn.rollback()
-            st.error(f"Error al cargar datos: {e}")
+            st.error(e)
 
         finally:
             conn.close()
