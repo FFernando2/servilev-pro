@@ -3,6 +3,34 @@ import pandas as pd
 from database import conectar
 
 
+def formato_excel(valor):
+    try:
+        return f"{int(valor):,}".replace(",", ".")
+    except:
+        return "0"
+
+
+def limpiar_numero(x):
+    if pd.isna(x):
+        return 0
+
+    x = str(x).strip()
+
+    if x == "" or x.lower() == "nan":
+        return 0
+
+    x = x.replace(".", "")
+    x = x.replace(",", "")
+
+    if x == "":
+        return 0
+
+    try:
+        return int(x)
+    except:
+        return 0
+
+
 def cargar_excel_inventario(bodega):
 
     st.subheader(f"Cargar Excel Inventario - Bodega {bodega}")
@@ -62,20 +90,20 @@ def cargar_excel_inventario(bodega):
     df = df[df["Material"] != ""]
     df = df[df["Material"].str.lower() != "nan"]
 
-    df["Cantidad necesaria"] = pd.to_numeric(df["Cantidad necesaria"], errors="coerce").fillna(0).astype(int)
-    df["Cantidad tomada"] = pd.to_numeric(df["Cantidad tomada"], errors="coerce").fillna(0).astype(int)
-    df["Ctd.faltante"] = pd.to_numeric(df["Ctd.faltante"], errors="coerce").fillna(0).astype(int)
+    df["Cantidad necesaria"] = df["Cantidad necesaria"].apply(limpiar_numero)
+    df["Cantidad tomada"] = df["Cantidad tomada"].apply(limpiar_numero)
+    df["Ctd.faltante"] = df["Ctd.faltante"].apply(limpiar_numero)
 
     # -------------------------
-    # VISTA PREVIA FORMATEADA
+    # VISTA PREVIA
     # -------------------------
 
     st.write("Vista previa del Excel:")
 
     df_preview = df.copy()
-    df_preview["Cantidad necesaria"] = df_preview["Cantidad necesaria"].map("{:,}".format)
-    df_preview["Cantidad tomada"] = df_preview["Cantidad tomada"].map("{:,}".format)
-    df_preview["Ctd.faltante"] = df_preview["Ctd.faltante"].map("{:,}".format)
+    df_preview["Cantidad necesaria"] = df_preview["Cantidad necesaria"].apply(formato_excel)
+    df_preview["Cantidad tomada"] = df_preview["Cantidad tomada"].apply(formato_excel)
+    df_preview["Ctd.faltante"] = df_preview["Ctd.faltante"].apply(formato_excel)
 
     st.dataframe(df_preview.head(10), use_container_width=True)
 
@@ -87,8 +115,8 @@ def cargar_excel_inventario(bodega):
     materiales_unicos = df["Material"].nunique()
 
     col1, col2 = st.columns(2)
-    col1.metric("Filas Excel válidas", f"{int(total_filas):,}")
-    col2.metric("Materiales únicos", f"{int(materiales_unicos):,}")
+    col1.metric("Filas Excel válidas", formato_excel(total_filas))
+    col2.metric("Materiales únicos", formato_excel(materiales_unicos))
 
     # -------------------------
     # CONSOLIDAR REPETIDOS
@@ -103,24 +131,20 @@ def cargar_excel_inventario(bodega):
         "Ctd.faltante": "sum"
     })
 
-    df_consolidado["Cantidad necesaria"] = df_consolidado["Cantidad necesaria"].astype(int)
-    df_consolidado["Cantidad tomada"] = df_consolidado["Cantidad tomada"].astype(int)
-    df_consolidado["Ctd.faltante"] = df_consolidado["Ctd.faltante"].astype(int)
-
     st.divider()
     st.write("Vista consolidada que se cargará al sistema:")
 
     df_consolidado_mostrar = df_consolidado.copy()
-    df_consolidado_mostrar["Cantidad necesaria"] = df_consolidado_mostrar["Cantidad necesaria"].map("{:,}".format)
-    df_consolidado_mostrar["Cantidad tomada"] = df_consolidado_mostrar["Cantidad tomada"].map("{:,}".format)
-    df_consolidado_mostrar["Ctd.faltante"] = df_consolidado_mostrar["Ctd.faltante"].map("{:,}".format)
+    df_consolidado_mostrar["Cantidad necesaria"] = df_consolidado_mostrar["Cantidad necesaria"].apply(formato_excel)
+    df_consolidado_mostrar["Cantidad tomada"] = df_consolidado_mostrar["Cantidad tomada"].apply(formato_excel)
+    df_consolidado_mostrar["Ctd.faltante"] = df_consolidado_mostrar["Ctd.faltante"].apply(formato_excel)
 
     st.dataframe(df_consolidado_mostrar, use_container_width=True)
 
-    st.write("Registros consolidados a cargar:", f"{len(df_consolidado):,}")
+    st.write("Registros consolidados a cargar:", formato_excel(len(df_consolidado)))
 
     # -------------------------
-    # GUARDAR EN BASE DE DATOS
+    # GUARDAR EN BASE
     # -------------------------
 
     if st.button("Cargar al inventario"):
@@ -215,8 +239,8 @@ def cargar_excel_inventario(bodega):
             st.success("Excel cargado correctamente ✅")
 
             c1, c2 = st.columns(2)
-            c1.metric("Insertados", f"{int(insertados):,}")
-            c2.metric("Actualizados", f"{int(actualizados):,}")
+            c1.metric("Insertados", formato_excel(insertados))
+            c2.metric("Actualizados", formato_excel(actualizados))
 
         except Exception as e:
             conn.rollback()
