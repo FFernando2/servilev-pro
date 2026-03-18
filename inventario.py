@@ -28,9 +28,25 @@ def inventario(bodega):
         st.info("No hay materiales en el inventario")
         return
 
-    df["cantidad_necesaria"] = pd.to_numeric(df["cantidad_necesaria"], errors="coerce").fillna(0)
-    df["cantidad_tomada"] = pd.to_numeric(df["cantidad_tomada"], errors="coerce").fillna(0)
-    df["ctd_faltante"] = pd.to_numeric(df["ctd_faltante"], errors="coerce").fillna(0)
+    # -------------------------
+    # NUMEROS SIN DECIMALES
+    # -------------------------
+
+    df["cantidad_necesaria"] = pd.to_numeric(
+        df["cantidad_necesaria"], errors="coerce"
+    ).fillna(0).astype(int)
+
+    df["cantidad_tomada"] = pd.to_numeric(
+        df["cantidad_tomada"], errors="coerce"
+    ).fillna(0).astype(int)
+
+    df["ctd_faltante"] = pd.to_numeric(
+        df["ctd_faltante"], errors="coerce"
+    ).fillna(0).astype(int)
+
+    # -------------------------
+    # PANEL DE CONTROL
+    # -------------------------
 
     total_materiales = len(df)
     reservas_activas = df["reserva"].nunique()
@@ -46,6 +62,10 @@ def inventario(bodega):
 
     st.divider()
 
+    # -------------------------
+    # BUSCADOR
+    # -------------------------
+
     buscar = st.text_input("Buscar por reserva, material o descripción")
 
     if buscar:
@@ -55,15 +75,26 @@ def inventario(bodega):
             df["texto_material"].astype(str).str.contains(buscar, case=False, na=False)
         ]
 
+    # -------------------------
+    # ESTADO MATERIAL
+    # -------------------------
+
     def estado(row):
+
         if row["cantidad_tomada"] <= 0:
             return "🔴 Sin stock"
+
         elif row["cantidad_tomada"] < row["cantidad_necesaria"]:
             return "🟡 Pendiente"
+
         else:
             return "🟢 Completo"
 
     df["estado"] = df.apply(estado, axis=1)
+
+    # -------------------------
+    # RENOMBRAR COLUMNAS
+    # -------------------------
 
     df = df.rename(columns={
         "proyecto": "Proyecto",
@@ -76,5 +107,9 @@ def inventario(bodega):
         "ctd_faltante": "Cantidad faltante",
         "estado": "Estado"
     })
+
+    # -------------------------
+    # TABLA
+    # -------------------------
 
     st.dataframe(df, use_container_width=True)
