@@ -5,7 +5,7 @@ from database import conectar
 
 def formato_excel(valor):
     try:
-        return f"{int(valor):,}".replace(",", ".")
+        return f"{int(round(float(valor))):,}".replace(",", ".")
     except:
         return "0"
 
@@ -14,19 +14,60 @@ def limpiar_numero(x):
     if pd.isna(x):
         return 0
 
+    # Si ya viene como número desde Excel, respetarlo
+    if isinstance(x, (int, float)):
+        return int(round(float(x)))
+
     x = str(x).strip()
 
     if x == "" or x.lower() == "nan":
         return 0
 
-    x = x.replace(".", "")
-    x = x.replace(",", "")
+    # Caso 1: formato chileno/español con miles y decimales
+    # Ej: 1.234,56 -> 1234.56
+    if "." in x and "," in x:
+        x = x.replace(".", "").replace(",", ".")
+        try:
+            return int(round(float(x)))
+        except:
+            return 0
 
-    if x == "":
-        return 0
+    # Caso 2: solo comas
+    # Si hay una sola coma y 3 dígitos después, probablemente es miles: 5,000
+    if "," in x:
+        partes = x.split(",")
+        if len(partes) == 2 and len(partes[1]) == 3 and partes[1].isdigit():
+            x = x.replace(",", "")
+            try:
+                return int(round(float(x)))
+            except:
+                return 0
+        else:
+            # asumir decimal: 12,5 -> 12.5
+            x = x.replace(",", ".")
+            try:
+                return int(round(float(x)))
+            except:
+                return 0
+
+    # Caso 3: solo puntos
+    # Si hay un punto y 3 dígitos después, probablemente es miles: 5.000
+    if "." in x:
+        partes = x.split(".")
+        if len(partes) == 2 and len(partes[1]) == 3 and partes[1].isdigit():
+            x = x.replace(".", "")
+            try:
+                return int(round(float(x)))
+            except:
+                return 0
+        else:
+            try:
+                return int(round(float(x)))
+            except:
+                return 0
 
     try:
-        return int(x)
+        return int(round(float(x)))
     except:
         return 0
 
@@ -40,10 +81,6 @@ def cargar_excel_inventario(bodega):
 
     if archivo is None:
         return
-
-    # -------------------------
-    # LEER EXCEL
-    # -------------------------
 
     try:
         xls = pd.ExcelFile(archivo)
@@ -95,21 +132,15 @@ def cargar_excel_inventario(bodega):
     df["Ctd.faltante"] = df["Ctd.faltante"].apply(limpiar_numero)
 
     # -------------------------
-    # VISTA PREVIA
+    # DEBUG SIMPLE
     # -------------------------
 
     st.write("Vista previa del Excel:")
-
     df_preview = df.copy()
     df_preview["Cantidad necesaria"] = df_preview["Cantidad necesaria"].apply(formato_excel)
     df_preview["Cantidad tomada"] = df_preview["Cantidad tomada"].apply(formato_excel)
     df_preview["Ctd.faltante"] = df_preview["Ctd.faltante"].apply(formato_excel)
-
     st.dataframe(df_preview.head(10), use_container_width=True)
-
-    # -------------------------
-    # RESUMEN
-    # -------------------------
 
     total_filas = len(df)
     materiales_unicos = df["Material"].nunique()
@@ -119,7 +150,7 @@ def cargar_excel_inventario(bodega):
     col2.metric("Materiales únicos", formato_excel(materiales_unicos))
 
     # -------------------------
-    # CONSOLIDAR REPETIDOS
+    # CONSOLIDAR
     # -------------------------
 
     df_consolidado = df.groupby(
@@ -144,7 +175,7 @@ def cargar_excel_inventario(bodega):
     st.write("Registros consolidados a cargar:", formato_excel(len(df_consolidado)))
 
     # -------------------------
-    # GUARDAR EN BASE
+    # GUARDAR
     # -------------------------
 
     if st.button("Cargar al inventario"):
