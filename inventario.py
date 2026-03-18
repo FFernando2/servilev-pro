@@ -29,7 +29,7 @@ def inventario(bodega):
         return
 
     # -------------------------
-    # NUMEROS SIN DECIMALES
+    # NUMEROS
     # -------------------------
 
     df["cantidad_necesaria"] = pd.to_numeric(
@@ -80,13 +80,10 @@ def inventario(bodega):
     # -------------------------
 
     def estado(row):
-
         if row["cantidad_tomada"] <= 0:
             return "🔴 Sin stock"
-
         elif row["cantidad_tomada"] < row["cantidad_necesaria"]:
             return "🟡 Pendiente"
-
         else:
             return "🟢 Completo"
 
@@ -109,7 +106,15 @@ def inventario(bodega):
     })
 
     # -------------------------
-    # TABLA
+    # FORMATO TIPO EXCEL
+    # -------------------------
+
+    df["Cantidad necesaria"] = df["Cantidad necesaria"].map("{:,}".format)
+    df["Cantidad tomada"] = df["Cantidad tomada"].map("{:,}".format)
+    df["Cantidad faltante"] = df["Cantidad faltante"].map("{:,}".format)
+
+    # -------------------------
+    # TABLA INVENTARIO
     # -------------------------
 
     st.dataframe(df, use_container_width=True)
