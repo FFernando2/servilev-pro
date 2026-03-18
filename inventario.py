@@ -28,10 +28,14 @@ def inventario(bodega):
         st.info("No hay materiales en el inventario")
         return
 
+    df["cantidad_necesaria"] = pd.to_numeric(df["cantidad_necesaria"], errors="coerce").fillna(0)
+    df["cantidad_tomada"] = pd.to_numeric(df["cantidad_tomada"], errors="coerce").fillna(0)
+    df["ctd_faltante"] = pd.to_numeric(df["ctd_faltante"], errors="coerce").fillna(0)
+
     total_materiales = len(df)
     reservas_activas = df["reserva"].nunique()
-    faltantes = (pd.to_numeric(df["ctd_faltante"], errors="coerce").fillna(0) > 0).sum()
-    sin_stock = (pd.to_numeric(df["cantidad_tomada"], errors="coerce").fillna(0) <= 0).sum()
+    faltantes = (df["ctd_faltante"] > 0).sum()
+    sin_stock = (df["cantidad_tomada"] <= 0).sum()
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -52,15 +56,9 @@ def inventario(bodega):
         ]
 
     def estado(row):
-        cantidad_tomada = pd.to_numeric(row["cantidad_tomada"], errors="coerce")
-        cantidad_necesaria = pd.to_numeric(row["cantidad_necesaria"], errors="coerce")
-
-        cantidad_tomada = 0 if pd.isna(cantidad_tomada) else cantidad_tomada
-        cantidad_necesaria = 0 if pd.isna(cantidad_necesaria) else cantidad_necesaria
-
-        if cantidad_tomada <= 0:
+        if row["cantidad_tomada"] <= 0:
             return "🔴 Sin stock"
-        elif cantidad_tomada < cantidad_necesaria:
+        elif row["cantidad_tomada"] < row["cantidad_necesaria"]:
             return "🟡 Pendiente"
         else:
             return "🟢 Completo"
