@@ -23,6 +23,8 @@ def limpiar_numero(x):
     if x == "" or x.lower() == "nan":
         return 0
 
+    # quitar separadores
+    x = x.replace(".", "")
     x = x.replace(",", "")
     x = x.replace(" ", "")
 
@@ -36,7 +38,6 @@ def cargar_excel_inventario(bodega):
 
     st.subheader(f"Cargar Excel Inventario - Bodega {bodega}")
 
-    proyecto = st.text_input("Proyecto")
     archivo = st.file_uploader("Seleccionar archivo Excel", type=["xlsx"])
 
     if archivo is None:
@@ -64,6 +65,7 @@ def cargar_excel_inventario(bodega):
     df.columns = [str(c).strip() for c in df.columns]
 
     columnas_obligatorias = [
+        "Definición proyecto",
         "Reserva",
         "Material",
         "Texto material",
@@ -80,9 +82,16 @@ def cargar_excel_inventario(bodega):
         return
 
     # -------------------------
-    # LIMPIEZA
+    # SOLO ESTAS COLUMNAS
     # -------------------------
 
+    df = df[columnas_obligatorias].copy()
+
+    # -------------------------
+    # LIMPIAR TEXTO
+    # -------------------------
+
+    df["Definición proyecto"] = df["Definición proyecto"].astype(str).str.strip()
     df["Reserva"] = df["Reserva"].astype(str).str.strip()
     df["Material"] = df["Material"].astype(str).str.strip()
     df["Texto material"] = df["Texto material"].astype(str).str.strip()
@@ -90,6 +99,10 @@ def cargar_excel_inventario(bodega):
 
     df = df[df["Material"] != ""]
     df = df[df["Material"].str.lower() != "nan"]
+
+    # -------------------------
+    # LIMPIAR NUMEROS
+    # -------------------------
 
     df["Cantidad necesaria"] = df["Cantidad necesaria"].apply(limpiar_numero)
     df["Cantidad tomada"] = df["Cantidad tomada"].apply(limpiar_numero)
@@ -99,32 +112,28 @@ def cargar_excel_inventario(bodega):
     # VISTA PREVIA
     # -------------------------
 
-    st.write("Vista previa del Excel:")
+    st.write("Vista previa del Excel")
 
     df_preview = df.copy()
+
     df_preview["Cantidad necesaria"] = df_preview["Cantidad necesaria"].apply(formato_excel)
     df_preview["Cantidad tomada"] = df_preview["Cantidad tomada"].apply(formato_excel)
     df_preview["Ctd.faltante"] = df_preview["Ctd.faltante"].apply(formato_excel)
 
-    st.dataframe(df_preview.head(10), use_container_width=True)
-
-    # -------------------------
-    # RESUMEN
-    # -------------------------
-
-    total_filas = len(df)
-    materiales_unicos = df["Material"].nunique()
-
-    col1, col2 = st.columns(2)
-    col1.metric("Filas Excel válidas", formato_excel(total_filas))
-    col2.metric("Materiales únicos", formato_excel(materiales_unicos))
+    st.dataframe(df_preview, use_container_width=True)
 
     # -------------------------
     # CONSOLIDAR REPETIDOS
     # -------------------------
 
     df_consolidado = df.groupby(
-        ["Reserva", "Material", "Texto material", "Unidad"],
+        [
+            "Definición proyecto",
+            "Reserva",
+            "Material",
+            "Texto material",
+            "Unidad"
+        ],
         as_index=False
     ).agg({
         "Cantidad necesaria": "sum",
@@ -133,26 +142,16 @@ def cargar_excel_inventario(bodega):
     })
 
     st.divider()
-    st.write("Vista consolidada que se cargará al sistema:")
 
-    df_consolidado_mostrar = df_consolidado.copy()
-    df_consolidado_mostrar["Cantidad necesaria"] = df_consolidado_mostrar["Cantidad necesaria"].apply(formato_excel)
-    df_consolidado_mostrar["Cantidad tomada"] = df_consolidado_mostrar["Cantidad tomada"].apply(formato_excel)
-    df_consolidado_mostrar["Ctd.faltante"] = df_consolidado_mostrar["Ctd.faltante"].apply(formato_excel)
+    st.write("Datos que se cargarán")
 
-    st.dataframe(df_consolidado_mostrar, use_container_width=True)
-
-    st.write("Registros consolidados a cargar:", formato_excel(len(df_consolidado)))
+    st.dataframe(df_consolidado, use_container_width=True)
 
     # -------------------------
-    # GUARDAR EN BASE
+    # GUARDAR
     # -------------------------
 
     if st.button("Cargar al inventario"):
-
-        if proyecto.strip() == "":
-            st.warning("Debes ingresar el proyecto")
-            return
 
         conn = conectar()
         c = conn.cursor()
@@ -161,24 +160,26 @@ def cargar_excel_inventario(bodega):
         actualizados = 0
 
         try:
+
             for _, row in df_consolidado.iterrows():
 
+                proyecto = str(row["Definición proyecto"]).strip()
                 reserva = str(row["Reserva"]).strip()
                 material = str(row["Material"]).strip()
-                texto_material = str(row["Texto material"]).strip()
+                texto = str(row["Texto material"]).strip()
                 unidad = str(row["Unidad"]).strip()
 
-                cantidad_necesaria = int(row["Cantidad necesaria"])
-                cantidad_tomada = int(row["Cantidad tomada"])
-                ctd_faltante = int(row["Ctd.faltante"])
+                necesaria = int(row["Cantidad necesaria"])
+                tomada = int(row["Cantidad tomada"])
+                faltante = int(row["Ctd.faltante"])
 
                 c.execute("""
                     SELECT id
                     FROM inventario
-                    WHERE proyecto=%s
-                      AND reserva=%s
-                      AND material=%s
-                      AND bodega=%s
+                    WHERE proyecto=?
+                    AND reserva=?
+                    AND material=?
+                    AND bodega=?
                 """, (
                     proyecto,
                     reserva,
@@ -189,25 +190,28 @@ def cargar_excel_inventario(bodega):
                 existe = c.fetchone()
 
                 if existe:
+
                     c.execute("""
                         UPDATE inventario
-                        SET texto_material=%s,
-                            unidad=%s,
-                            cantidad_necesaria=%s,
-                            cantidad_tomada=%s,
-                            ctd_faltante=%s
-                        WHERE id=%s
+                        SET texto_material=?,
+                            unidad=?,
+                            cantidad_necesaria=?,
+                            cantidad_tomada=?,
+                            ctd_faltante=?
+                        WHERE id=?
                     """, (
-                        texto_material,
+                        texto,
                         unidad,
-                        cantidad_necesaria,
-                        cantidad_tomada,
-                        ctd_faltante,
+                        necesaria,
+                        tomada,
+                        faltante,
                         existe[0]
                     ))
+
                     actualizados += 1
 
                 else:
+
                     c.execute("""
                         INSERT INTO inventario
                         (
@@ -221,31 +225,34 @@ def cargar_excel_inventario(bodega):
                             ctd_faltante,
                             bodega
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         proyecto,
                         reserva,
                         material,
-                        texto_material,
+                        texto,
                         unidad,
-                        cantidad_necesaria,
-                        cantidad_tomada,
-                        ctd_faltante,
+                        necesaria,
+                        tomada,
+                        faltante,
                         bodega
                     ))
+
                     insertados += 1
 
             conn.commit()
 
-            st.success("Excel cargado correctamente ✅")
+            st.success("Excel cargado correctamente")
 
             c1, c2 = st.columns(2)
-            c1.metric("Insertados", formato_excel(insertados))
-            c2.metric("Actualizados", formato_excel(actualizados))
+            c1.metric("Insertados", insertados)
+            c2.metric("Actualizados", actualizados)
 
         except Exception as e:
+
             conn.rollback()
-            st.error(f"Error al cargar datos: {e}")
+            st.error(f"Error: {e}")
 
         finally:
+
             conn.close()
