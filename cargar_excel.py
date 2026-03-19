@@ -13,25 +13,43 @@ def limpiar_numero(valor, unidad):
         return 0
 
     texto = texto.replace(" ", "")
+    unidad = str(unidad).strip().upper()
 
-    # KG y M: coma decimal
-    # Ej: 15,300 -> 15.3
+    # -------------------------
+    # KG y M -> decimal
+    # acepta:
+    # 15,300 -> 15.300
+    # 15.300 -> 15.300
+    # 15,3   -> 15.3
+    # 15     -> 15.0
+    # -17,000 -> -17.0
+    # -------------------------
     if unidad in ["KG", "M"]:
         try:
-            if "," in texto:
-                partes = texto.split(",", 1)
-                entero = partes[0]
-                decimal = partes[1]
+            # Caso con coma decimal
+            if "," in texto and "." not in texto:
+                return float(texto.replace(",", "."))
 
-                # convertir 300 -> 0.300 ; 000 -> 0.000
-                numero = float(f"{entero}.{decimal}")
-                return numero
+            # Caso con punto decimal
+            if "." in texto and "," not in texto:
+                return float(texto)
 
-            return float(texto.replace(",", "."))
+            # Si trae ambos, quitamos separador de miles y dejamos decimal
+            if "," in texto and "." in texto:
+                texto = texto.replace(".", "").replace(",", ".")
+                return float(texto)
+
+            return float(texto)
         except:
             return 0
 
-    # UN: entero
+    # -------------------------
+    # UN -> entero
+    # acepta:
+    # 5
+    # 5,000 -> 5000
+    # 5.000 -> 5000
+    # -------------------------
     try:
         texto = texto.replace(".", "").replace(",", "")
         return int(float(texto))
@@ -41,11 +59,12 @@ def limpiar_numero(valor, unidad):
 
 def formato_excel(valor, unidad):
     try:
+        unidad = str(unidad).strip().upper()
+
         if unidad in ["KG", "M"]:
-            # 15.3 -> 15,300
             return f"{float(valor):.3f}".replace(".", ",")
-        else:
-            return f"{int(valor):,}".replace(",", ".")
+
+        return f"{int(valor):,}".replace(",", ".")
     except:
         return "0"
 
@@ -196,7 +215,7 @@ def cargar_excel_inventario(bodega):
                 reserva = str(row["Reserva"]).strip()
                 material = str(row["Material"]).strip()
                 texto = str(row["Texto material"]).strip()
-                unidad = str(row["Unidad"]).strip()
+                unidad = str(row["Unidad"]).strip().upper()
 
                 if unidad in ["KG", "M"]:
                     necesaria = float(row["Cantidad necesaria"])
