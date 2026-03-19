@@ -3,49 +3,60 @@ import pandas as pd
 from database import conectar
 
 
-def formato_excel(valor):
+def limpiar_numero(valor, unidad):
+    if pd.isna(valor):
+        return 0
+
+    texto = str(valor).strip()
+
+    if texto == "" or texto.lower() == "nan":
+        return 0
+
+    texto = texto.replace(" ", "")
+
+    # KG y M: coma decimal
+    # Ej: 15,300 -> 15.3
+    if unidad in ["KG", "M"]:
+        try:
+            if "," in texto:
+                partes = texto.split(",", 1)
+                entero = partes[0]
+                decimal = partes[1]
+
+                # convertir 300 -> 0.300 ; 000 -> 0.000
+                numero = float(f"{entero}.{decimal}")
+                return numero
+
+            return float(texto.replace(",", "."))
+        except:
+            return 0
+
+    # UN: entero
     try:
-        return f"{int(valor):,}".replace(",", ".")
+        texto = texto.replace(".", "").replace(",", "")
+        return int(float(texto))
+    except:
+        return 0
+
+
+def formato_excel(valor, unidad):
+    try:
+        if unidad in ["KG", "M"]:
+            # 15.3 -> 15,300
+            return f"{float(valor):.3f}".replace(".", ",")
+        else:
+            return f"{int(valor):,}".replace(",", ".")
     except:
         return "0"
 
 
-def limpiar_numero(x):
-
-    if pd.isna(x):
-        return 0
-
-    if isinstance(x, (int, float)):
-        return int(x)
-
-    x = str(x).strip()
-
-    if x == "" or x.lower() == "nan":
-        return 0
-
-    # quitar separadores
-    x = x.replace(".", "")
-    x = x.replace(",", "")
-    x = x.replace(" ", "")
-
-    try:
-        return int(float(x))
-    except:
-        return 0
-
-
 def cargar_excel_inventario(bodega):
-
     st.subheader(f"Cargar Excel Inventario - Bodega {bodega}")
 
     archivo = st.file_uploader("Seleccionar archivo Excel", type=["xlsx"])
 
     if archivo is None:
         return
-
-    # -------------------------
-    # LEER EXCEL
-    # -------------------------
 
     try:
         xls = pd.ExcelFile(archivo)
@@ -81,50 +92,59 @@ def cargar_excel_inventario(bodega):
         st.error(f"Faltan columnas en el Excel: {', '.join(faltantes)}")
         return
 
-    # -------------------------
-    # SOLO ESTAS COLUMNAS
-    # -------------------------
-
     df = df[columnas_obligatorias].copy()
-
-    # -------------------------
-    # LIMPIAR TEXTO
-    # -------------------------
 
     df["Definición proyecto"] = df["Definición proyecto"].astype(str).str.strip()
     df["Reserva"] = df["Reserva"].astype(str).str.strip()
     df["Material"] = df["Material"].astype(str).str.strip()
     df["Texto material"] = df["Texto material"].astype(str).str.strip()
-    df["Unidad"] = df["Unidad"].astype(str).str.strip()
+    df["Unidad"] = df["Unidad"].astype(str).str.strip().str.upper()
 
     df = df[df["Material"] != ""]
     df = df[df["Material"].str.lower() != "nan"]
 
-    # -------------------------
-    # LIMPIAR NUMEROS
-    # -------------------------
+    df["Cantidad necesaria"] = df.apply(
+        lambda r: limpiar_numero(r["Cantidad necesaria"], r["Unidad"]),
+        axis=1
+    )
 
-    df["Cantidad necesaria"] = df["Cantidad necesaria"].apply(limpiar_numero)
-    df["Cantidad tomada"] = df["Cantidad tomada"].apply(limpiar_numero)
-    df["Ctd.faltante"] = df["Ctd.faltante"].apply(limpiar_numero)
+    df["Cantidad tomada"] = df.apply(
+        lambda r: limpiar_numero(r["Cantidad tomada"], r["Unidad"]),
+        axis=1
+    )
 
-    # -------------------------
-    # VISTA PREVIA
-    # -------------------------
+    df["Ctd.faltante"] = df.apply(
+        lambda r: limpiar_numero(r["Ctd.faltante"], r["Unidad"]),
+        axis=1
+    )
 
     st.write("Vista previa del Excel")
 
     df_preview = df.copy()
 
-    df_preview["Cantidad necesaria"] = df_preview["Cantidad necesaria"].apply(formato_excel)
-    df_preview["Cantidad tomada"] = df_preview["Cantidad tomada"].apply(formato_excel)
-    df_preview["Ctd.faltante"] = df_preview["Ctd.faltante"].apply(formato_excel)
+    df_preview["Cantidad necesaria"] = df_preview.apply(
+        lambda r: formato_excel(r["Cantidad necesaria"], r["Unidad"]),
+        axis=1
+    )
+
+    df_preview["Cantidad tomada"] = df_preview.apply(
+        lambda r: formato_excel(r["Cantidad tomada"], r["Unidad"]),
+        axis=1
+    )
+
+    df_preview["Ctd.faltante"] = df_preview.apply(
+        lambda r: formato_excel(r["Ctd.faltante"], r["Unidad"]),
+        axis=1
+    )
 
     st.dataframe(df_preview, use_container_width=True)
 
-    # -------------------------
-    # CONSOLIDAR REPETIDOS
-    # -------------------------
+    total_filas = len(df)
+    materiales_unicos = df["Material"].nunique()
+
+    col1, col2 = st.columns(2)
+    col1.metric("Filas válidas", total_filas)
+    col2.metric("Materiales únicos", materiales_unicos)
 
     df_consolidado = df.groupby(
         [
@@ -142,17 +162,28 @@ def cargar_excel_inventario(bodega):
     })
 
     st.divider()
-
     st.write("Datos que se cargarán")
 
-    st.dataframe(df_consolidado, use_container_width=True)
+    df_consolidado_mostrar = df_consolidado.copy()
 
-    # -------------------------
-    # GUARDAR
-    # -------------------------
+    df_consolidado_mostrar["Cantidad necesaria"] = df_consolidado_mostrar.apply(
+        lambda r: formato_excel(r["Cantidad necesaria"], r["Unidad"]),
+        axis=1
+    )
+
+    df_consolidado_mostrar["Cantidad tomada"] = df_consolidado_mostrar.apply(
+        lambda r: formato_excel(r["Cantidad tomada"], r["Unidad"]),
+        axis=1
+    )
+
+    df_consolidado_mostrar["Ctd.faltante"] = df_consolidado_mostrar.apply(
+        lambda r: formato_excel(r["Ctd.faltante"], r["Unidad"]),
+        axis=1
+    )
+
+    st.dataframe(df_consolidado_mostrar, use_container_width=True)
 
     if st.button("Cargar al inventario"):
-
         conn = conectar()
         c = conn.cursor()
 
@@ -160,26 +191,29 @@ def cargar_excel_inventario(bodega):
         actualizados = 0
 
         try:
-
             for _, row in df_consolidado.iterrows():
-
                 proyecto = str(row["Definición proyecto"]).strip()
                 reserva = str(row["Reserva"]).strip()
                 material = str(row["Material"]).strip()
                 texto = str(row["Texto material"]).strip()
                 unidad = str(row["Unidad"]).strip()
 
-                necesaria = int(row["Cantidad necesaria"])
-                tomada = int(row["Cantidad tomada"])
-                faltante = int(row["Ctd.faltante"])
+                if unidad in ["KG", "M"]:
+                    necesaria = float(row["Cantidad necesaria"])
+                    tomada = float(row["Cantidad tomada"])
+                    faltante = float(row["Ctd.faltante"])
+                else:
+                    necesaria = int(row["Cantidad necesaria"])
+                    tomada = int(row["Cantidad tomada"])
+                    faltante = int(row["Ctd.faltante"])
 
                 c.execute("""
                     SELECT id
                     FROM inventario
                     WHERE proyecto=?
-                    AND reserva=?
-                    AND material=?
-                    AND bodega=?
+                      AND reserva=?
+                      AND material=?
+                      AND bodega=?
                 """, (
                     proyecto,
                     reserva,
@@ -190,7 +224,6 @@ def cargar_excel_inventario(bodega):
                 existe = c.fetchone()
 
                 if existe:
-
                     c.execute("""
                         UPDATE inventario
                         SET texto_material=?,
@@ -207,11 +240,8 @@ def cargar_excel_inventario(bodega):
                         faltante,
                         existe[0]
                     ))
-
                     actualizados += 1
-
                 else:
-
                     c.execute("""
                         INSERT INTO inventario
                         (
@@ -237,11 +267,9 @@ def cargar_excel_inventario(bodega):
                         faltante,
                         bodega
                     ))
-
                     insertados += 1
 
             conn.commit()
-
             st.success("Excel cargado correctamente")
 
             c1, c2 = st.columns(2)
@@ -249,10 +277,8 @@ def cargar_excel_inventario(bodega):
             c2.metric("Actualizados", actualizados)
 
         except Exception as e:
-
             conn.rollback()
             st.error(f"Error: {e}")
 
         finally:
-
             conn.close()
