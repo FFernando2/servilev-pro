@@ -7,34 +7,36 @@ def limpiar_numero(valor, unidad):
     if pd.isna(valor):
         return 0
 
+    unidad = str(unidad).strip().upper()
+
+    # Si pandas ya lo leyó como número
+    if isinstance(valor, (int, float)):
+        if unidad in ["KG", "M"]:
+            return float(valor)
+        return int(valor)
+
     texto = str(valor).strip()
 
     if texto == "" or texto.lower() == "nan":
         return 0
 
     texto = texto.replace(" ", "")
-    unidad = str(unidad).strip().upper()
 
     # -------------------------
     # KG y M -> decimal
-    # acepta:
-    # 15,300 -> 15.300
-    # 15.300 -> 15.300
-    # 15,3   -> 15.3
-    # 15     -> 15.0
-    # -17,000 -> -17.0
+    # Ej:
+    # 5,000 -> 5.0
+    # 11,200 -> 11.2
+    # 15,300 -> 15.3
     # -------------------------
     if unidad in ["KG", "M"]:
         try:
-            # Caso con coma decimal
             if "," in texto and "." not in texto:
                 return float(texto.replace(",", "."))
 
-            # Caso con punto decimal
             if "." in texto and "," not in texto:
                 return float(texto)
 
-            # Si trae ambos, quitamos separador de miles y dejamos decimal
             if "," in texto and "." in texto:
                 texto = texto.replace(".", "").replace(",", ".")
                 return float(texto)
@@ -45,14 +47,9 @@ def limpiar_numero(valor, unidad):
 
     # -------------------------
     # UN -> entero
-    # acepta:
-    # 5
-    # 5,000 -> 5000
-    # 5.000 -> 5000
     # -------------------------
     try:
-        texto = texto.replace(".", "").replace(",", "")
-        return int(float(texto))
+        return int(float(texto.replace(",", ".")))
     except:
         return 0
 
@@ -64,7 +61,7 @@ def formato_excel(valor, unidad):
         if unidad in ["KG", "M"]:
             return f"{float(valor):.3f}".replace(".", ",")
 
-        return f"{int(valor):,}".replace(",", ".")
+        return str(int(valor))
     except:
         return "0"
 
@@ -165,42 +162,10 @@ def cargar_excel_inventario(bodega):
     col1.metric("Filas válidas", total_filas)
     col2.metric("Materiales únicos", materiales_unicos)
 
-    df_consolidado = df.groupby(
-        [
-            "Definición proyecto",
-            "Reserva",
-            "Material",
-            "Texto material",
-            "Unidad"
-        ],
-        as_index=False
-    ).agg({
-        "Cantidad necesaria": "sum",
-        "Cantidad tomada": "sum",
-        "Ctd.faltante": "sum"
-    })
-
     st.divider()
     st.write("Datos que se cargarán")
 
-    df_consolidado_mostrar = df_consolidado.copy()
-
-    df_consolidado_mostrar["Cantidad necesaria"] = df_consolidado_mostrar.apply(
-        lambda r: formato_excel(r["Cantidad necesaria"], r["Unidad"]),
-        axis=1
-    )
-
-    df_consolidado_mostrar["Cantidad tomada"] = df_consolidado_mostrar.apply(
-        lambda r: formato_excel(r["Cantidad tomada"], r["Unidad"]),
-        axis=1
-    )
-
-    df_consolidado_mostrar["Ctd.faltante"] = df_consolidado_mostrar.apply(
-        lambda r: formato_excel(r["Ctd.faltante"], r["Unidad"]),
-        axis=1
-    )
-
-    st.dataframe(df_consolidado_mostrar, use_container_width=True)
+    st.dataframe(df_preview, use_container_width=True)
 
     if st.button("Cargar al inventario"):
         conn = conectar()
@@ -210,7 +175,7 @@ def cargar_excel_inventario(bodega):
         actualizados = 0
 
         try:
-            for _, row in df_consolidado.iterrows():
+            for _, row in df.iterrows():
                 proyecto = str(row["Definición proyecto"]).strip()
                 reserva = str(row["Reserva"]).strip()
                 material = str(row["Material"]).strip()
