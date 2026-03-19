@@ -13,12 +13,9 @@ def limpiar_numero(valor, unidad):
 
     unidad = str(unidad).strip().upper()
 
-    # si pandas ya lo leyó como número
     if isinstance(valor, (int, float)):
-
         if unidad in ["KG", "M"]:
             return float(valor)
-
         return int(valor)
 
     texto = str(valor).strip()
@@ -28,20 +25,16 @@ def limpiar_numero(valor, unidad):
 
     texto = texto.replace(" ", "")
 
-    # KG / M -> decimal
     if unidad in ["KG", "M"]:
 
         try:
 
-            # 15,300
             if "," in texto and "." not in texto:
                 return float(texto.replace(",", "."))
 
-            # 15.300
             if "." in texto and "," not in texto:
                 return float(texto)
 
-            # 15.300,000
             if "," in texto and "." in texto:
                 texto = texto.replace(".", "").replace(",", ".")
                 return float(texto)
@@ -50,8 +43,6 @@ def limpiar_numero(valor, unidad):
 
         except:
             return 0
-
-    # UN -> entero
 
     try:
         return int(float(texto.replace(",", ".")))
@@ -92,10 +83,6 @@ def cargar_excel_inventario(bodega):
     if archivo is None:
         return
 
-    # -------------------------
-    # LEER EXCEL
-    # -------------------------
-
     try:
         xls = pd.ExcelFile(archivo)
         hojas = xls.sheet_names
@@ -110,6 +97,8 @@ def cargar_excel_inventario(bodega):
     except Exception as e:
         st.error(f"Error leyendo hoja: {e}")
         return
+
+    st.write("Filas Excel:", len(df))
 
     df.columns = [str(c).strip() for c in df.columns]
 
@@ -132,9 +121,9 @@ def cargar_excel_inventario(bodega):
 
     df = df[columnas].copy()
 
-    # -------------------------
+    # -----------------------------
     # LIMPIAR TEXTO
-    # -------------------------
+    # -----------------------------
 
     df["Definición proyecto"] = df["Definición proyecto"].astype(str).str.strip()
     df["Reserva"] = df["Reserva"].astype(str).str.strip()
@@ -142,12 +131,18 @@ def cargar_excel_inventario(bodega):
     df["Texto material"] = df["Texto material"].astype(str).str.strip()
     df["Unidad"] = df["Unidad"].astype(str).str.strip().str.upper()
 
-    df = df[df["Material"] != ""]
-    df = df[df["Material"].str.lower() != "nan"]
+    # eliminar solo filas totalmente vacías
+    df = df.dropna(how="all")
 
-    # -------------------------
+    # eliminar solo si material vacío
+    df = df[df["Material"].notna()]
+    df = df[df["Material"] != ""]
+
+    st.write("Filas válidas:", len(df))
+
+    # -----------------------------
     # LIMPIAR NUMEROS
-    # -------------------------
+    # -----------------------------
 
     df["Cantidad necesaria"] = df.apply(
         lambda r: limpiar_numero(
@@ -173,11 +168,9 @@ def cargar_excel_inventario(bodega):
         axis=1
     )
 
-    # -------------------------
+    # -----------------------------
     # VISTA PREVIA
-    # -------------------------
-
-    st.write("Vista previa")
+    # -----------------------------
 
     df_preview = df.copy()
 
@@ -207,9 +200,9 @@ def cargar_excel_inventario(bodega):
 
     st.dataframe(df_preview, use_container_width=True)
 
-    # -------------------------
-    # BOTON CARGAR
-    # -------------------------
+    # -----------------------------
+    # CARGAR A BD
+    # -----------------------------
 
     if st.button("Cargar al inventario"):
 
@@ -241,10 +234,6 @@ def cargar_excel_inventario(bodega):
                     tomada = int(row["Cantidad tomada"])
                     faltante = int(row["Ctd.faltante"])
 
-                # -------------------------
-                # BUSCAR SI EXISTE
-                # -------------------------
-
                 c.execute("""
                     SELECT id
                     FROM inventario
@@ -260,10 +249,6 @@ def cargar_excel_inventario(bodega):
                 ))
 
                 existe = c.fetchone()
-
-                # -------------------------
-                # UPDATE
-                # -------------------------
 
                 if existe:
 
@@ -285,10 +270,6 @@ def cargar_excel_inventario(bodega):
                     ))
 
                     actualizados += 1
-
-                # -------------------------
-                # INSERT
-                # -------------------------
 
                 else:
 
