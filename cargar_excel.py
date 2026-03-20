@@ -7,7 +7,6 @@ from database import conectar
 # CREAR TABLA TRABAJOS (POSTGRES)
 # -----------------------------
 def crear_tabla_trabajos():
-
     conn = conectar()
     c = conn.cursor()
 
@@ -72,7 +71,6 @@ def limpiar_numero(valor, unidad):
 # FORMATO PARA MOSTRAR
 # -----------------------------
 def formato_excel(valor, unidad):
-
     try:
         unidad = str(unidad).strip().upper()
 
@@ -80,13 +78,12 @@ def formato_excel(valor, unidad):
             return f"{float(valor):.3f}".replace(".", ",")
 
         return str(int(valor))
-
     except:
         return "0"
 
 
 # -----------------------------
-# FUNCION PRINCIPAL
+# FUNCIÓN PRINCIPAL
 # -----------------------------
 def cargar_excel_inventario(bodega):
 
@@ -109,7 +106,7 @@ def cargar_excel_inventario(bodega):
         st.error(f"Error al abrir Excel: {e}")
         return
 
-    hoja = st.selectbox("Hoja", xls.sheet_names)
+    hoja = st.selectbox("Hoja", hojas)
 
     try:
         df = pd.read_excel(archivo, sheet_name=hoja)
@@ -169,7 +166,7 @@ def cargar_excel_inventario(bodega):
         return
 
     # -----------------------------
-    # LIMPIAR NUMEROS
+    # LIMPIAR NÚMEROS
     # -----------------------------
     df["Cantidad necesaria"] = df.apply(
         lambda r: limpiar_numero(r["Cantidad necesaria"], r["Unidad"]),
@@ -186,22 +183,8 @@ def cargar_excel_inventario(bodega):
         axis=1
     )
 
-    # -----------------------------
-    # AGRUPAR DUPLICADOS DEL MISMO EXCEL
-    # -----------------------------
-    df = df.groupby(
-        ["Definición proyecto", "Reserva", "Material", "Texto material", "Unidad"],
-        as_index=False
-    ).agg({
-        "Cantidad necesaria": "max",
-        "Cantidad tomada": "sum"
-    })
-
-    # recalcular faltante
-    df["Ctd.faltante"] = df.apply(
-        lambda r: max(float(r["Cantidad necesaria"]) - float(r["Cantidad tomada"]), 0),
-        axis=1
-    )
+    # Mantener el faltante en positivo como viene normalmente en Excel
+    df["Ctd.faltante"] = df["Ctd.faltante"].apply(abs)
 
     # -----------------------------
     # VISTA PREVIA FORMATEADA
@@ -235,8 +218,7 @@ def cargar_excel_inventario(bodega):
         c = conn.cursor()
 
         trabajos_creados = 0
-        materiales_nuevos = 0
-        materiales_actualizados = 0
+        filas_insertadas = 0
 
         try:
             for _, row in df.iterrows():
@@ -249,9 +231,10 @@ def cargar_excel_inventario(bodega):
 
                 cant_nec = float(row["Cantidad necesaria"])
                 cant_tom = float(row["Cantidad tomada"])
+                faltante = float(row["Ctd.faltante"])
 
                 # -----------------------
-                # CREAR TRABAJO
+                # CREAR TRABAJO SI NO EXISTE
                 # -----------------------
                 c.execute("""
                     SELECT id
@@ -268,83 +251,40 @@ def cargar_excel_inventario(bodega):
                     trabajos_creados += 1
 
                 # -----------------------
-                # BUSCAR MATERIAL
+                # INSERTAR FILA TAL CUAL VIENE DEL EXCEL
                 # -----------------------
                 c.execute("""
-                    SELECT id, cantidad_necesaria, cantidad_tomada
-                    FROM inventario
-                    WHERE proyecto=%s
-                      AND reserva=%s
-                      AND material=%s
-                      AND bodega=%s
-                """, (proyecto, reserva, material, bodega))
-
-                existe = c.fetchone()
-
-                if existe:
-                    id_inv = existe[0]
-                    nec_actual = float(existe[1] or 0)
-                    tom_actual = float(existe[2] or 0)
-
-                    nueva_nec = max(nec_actual, cant_nec)
-                    nueva_tom = tom_actual + cant_tom
-                    faltante = max(nueva_nec - nueva_tom, 0)
-
-                    c.execute("""
-                        UPDATE inventario
-                        SET texto_material=%s,
-                            unidad=%s,
-                            cantidad_necesaria=%s,
-                            cantidad_tomada=%s,
-                            ctd_faltante=%s
-                        WHERE id=%s
-                    """, (
-                        texto_material,
-                        unidad,
-                        nueva_nec,
-                        nueva_tom,
-                        faltante,
-                        id_inv
-                    ))
-
-                    materiales_actualizados += 1
-
-                else:
-                    faltante = max(cant_nec - cant_tom, 0)
-
-                    c.execute("""
-                        INSERT INTO inventario (
-                            proyecto,
-                            reserva,
-                            material,
-                            texto_material,
-                            unidad,
-                            cantidad_necesaria,
-                            cantidad_tomada,
-                            ctd_faltante,
-                            bodega
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (
+                    INSERT INTO inventario (
                         proyecto,
                         reserva,
                         material,
                         texto_material,
                         unidad,
-                        cant_nec,
-                        cant_tom,
-                        faltante,
+                        cantidad_necesaria,
+                        cantidad_tomada,
+                        ctd_faltante,
                         bodega
-                    ))
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    proyecto,
+                    reserva,
+                    material,
+                    texto_material,
+                    unidad,
+                    cant_nec,
+                    cant_tom,
+                    faltante,
+                    bodega
+                ))
 
-                    materiales_nuevos += 1
+                filas_insertadas += 1
 
             conn.commit()
 
             st.success("Excel cargado correctamente")
             st.write("Trabajos creados:", trabajos_creados)
-            st.write("Materiales nuevos:", materiales_nuevos)
-            st.write("Materiales actualizados:", materiales_actualizados)
+            st.write("Filas insertadas:", filas_insertadas)
 
             st.rerun()
 
