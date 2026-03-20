@@ -11,160 +11,257 @@ def formato_excel(valor, unidad):
         if unidad in ["KG", "M"]:
             return f"{float(valor):.3f}".replace(".", ",")
 
-        return str(int(valor))
+        return str(int(float(valor)))
     except:
         return "0"
 
 
 def inventario_general():
 
-    st.subheader("Inventario General Consolidado")
-
-    st.markdown("### Estado de Stock")
-
-    col1, col2, col3 = st.columns(3)
-    col1.markdown("🔴 Stock crítico (0 - 5)")
-    col2.markdown("🟠 Stock bajo (6 - 10)")
-    col3.markdown("🟢 Stock normal (>10)")
+    st.subheader("Inventario General")
 
     conn = conectar()
 
-    df = pd.read_sql("""
-        SELECT 
-            material,
-            texto_material,
-            unidad,
-            bodega,
-            cantidad_tomada
-        FROM inventario
-    """, conn)
+    try:
+        df = pd.read_sql("""
+            SELECT
+                proyecto,
+                reserva,
+                material,
+                texto_material,
+                unidad,
+                cantidad_necesaria,
+                cantidad_tomada,
+                ctd_faltante,
+                bodega
+            FROM inventario
+            ORDER BY proyecto, reserva, material
+        """, conn)
+    except Exception as e:
+        conn.close()
+        st.error(f"Error al cargar inventario: {e}")
+        return
 
     conn.close()
 
     if df.empty:
-        st.warning("No hay datos")
+        st.warning("No hay datos en inventario")
         return
 
     # -------------------------
-    # LIMPIAR
+    # LIMPIEZA
     # -------------------------
+    df["proyecto"] = df["proyecto"].astype(str).str.strip()
+    df["reserva"] = df["reserva"].astype(str).str.strip()
     df["material"] = df["material"].astype(str).str.strip()
     df["texto_material"] = df["texto_material"].astype(str).str.strip()
     df["unidad"] = df["unidad"].astype(str).str.strip().str.upper()
     df["bodega"] = df["bodega"].astype(str).str.strip()
+
+    df["cantidad_necesaria"] = pd.to_numeric(df["cantidad_necesaria"], errors="coerce").fillna(0)
     df["cantidad_tomada"] = pd.to_numeric(df["cantidad_tomada"], errors="coerce").fillna(0)
+    df["ctd_faltante"] = pd.to_numeric(df["ctd_faltante"], errors="coerce").fillna(0)
 
     # -------------------------
-    # CONSOLIDAR
+    # FILTROS
     # -------------------------
-    tabla = df.pivot_table(
-        index=["material", "texto_material", "unidad"],
-        columns="bodega",
-        values="cantidad_tomada",
-        aggfunc="sum",
-        fill_value=0
-    ).reset_index()
+    st.markdown("### Filtros")
 
-    if "Constitución" not in tabla.columns:
-        tabla["Constitución"] = 0
+    col1, col2, col3 = st.columns(3)
 
-    if "Hualañé" not in tabla.columns:
-        tabla["Hualañé"] = 0
+    with col1:
+        buscar = st.text_input("Buscar material / descripción / reserva")
 
-    tabla["Total"] = tabla["Constitución"] + tabla["Hualañé"]
+    with col2:
+        lista_bodegas = ["Todas"] + sorted(df["bodega"].dropna().unique().tolist())
+        bodega_sel = st.selectbox("Bodega", lista_bodegas)
 
-    # -------------------------
-    # RENOMBRAR
-    # -------------------------
-    tabla.columns = [
-        "Material",
-        "Texto material",
-        "Unidad",
-        "Constitución",
-        "Hualañé",
-        "Total"
-    ]
+    with col3:
+        vista_sel = st.selectbox(
+            "Vista",
+            ["Detalle Excel", "Resumen consolidado"]
+        )
 
-    # -------------------------
-    # BUSCAR
-    # -------------------------
-    buscar = st.text_input("Buscar material")
+    df_filtrado = df.copy()
 
     if buscar:
-        tabla = tabla[
-            tabla["Material"].astype(str).str.contains(buscar, case=False, na=False) |
-            tabla["Texto material"].astype(str).str.contains(buscar, case=False, na=False)
+        df_filtrado = df_filtrado[
+            df_filtrado["material"].str.contains(buscar, case=False, na=False) |
+            df_filtrado["texto_material"].str.contains(buscar, case=False, na=False) |
+            df_filtrado["reserva"].str.contains(buscar, case=False, na=False) |
+            df_filtrado["proyecto"].str.contains(buscar, case=False, na=False)
         ]
 
-    # -------------------------
-    # COPIA PARA MOSTRAR FORMATEADA
-    # -------------------------
-    tabla_mostrar = tabla.copy()
+    if bodega_sel != "Todas":
+        df_filtrado = df_filtrado[df_filtrado["bodega"] == bodega_sel]
 
-    tabla_mostrar["Constitución"] = tabla_mostrar.apply(
-        lambda r: formato_excel(r["Constitución"], r["Unidad"]),
-        axis=1
-    )
-
-    tabla_mostrar["Hualañé"] = tabla_mostrar.apply(
-        lambda r: formato_excel(r["Hualañé"], r["Unidad"]),
-        axis=1
-    )
-
-    tabla_mostrar["Total"] = tabla_mostrar.apply(
-        lambda r: formato_excel(r["Total"], r["Unidad"]),
-        axis=1
-    )
+    if df_filtrado.empty:
+        st.info("No hay resultados para los filtros seleccionados")
+        return
 
     # -------------------------
-    # COLORES STOCK
+    # METRICAS
     # -------------------------
-    def color_stock_fila(row):
-        val = float(row["Total_num"])
+    st.markdown("### Resumen rápido")
 
-        if val <= 5:
-            color = "color:red"
-        elif val <= 10:
-            color = "color:orange"
-        else:
-            color = "color:green"
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Filas", len(df_filtrado))
+    m2.metric("Materiales únicos", df_filtrado["material"].nunique())
+    m3.metric("Reservas", df_filtrado["reserva"].nunique())
 
-        return ["", "", "", "", "", color]
+    st.divider()
 
-    # tabla auxiliar con total numérico para colorear
-    tabla_estilo = tabla_mostrar.copy()
-    tabla_estilo["Total_num"] = tabla["Total"].values
+    # ==================================================
+    # VISTA 1: DETALLE EXCEL
+    # ==================================================
+    if vista_sel == "Detalle Excel":
 
-    st.dataframe(
-        tabla_estilo[["Material", "Texto material", "Unidad", "Constitución", "Hualañé", "Total"]]
-        .style.apply(
-            lambda _: color_stock_fila(tabla_estilo.loc[_ .name]),
+        vista = df_filtrado.copy()
+
+        vista["cantidad_necesaria"] = vista.apply(
+            lambda r: formato_excel(r["cantidad_necesaria"], r["unidad"]),
             axis=1
-        ),
-        use_container_width=True,
-        hide_index=True
-    )
+        )
 
-    st.write("Materiales:", len(tabla))
+        vista["cantidad_tomada"] = vista.apply(
+            lambda r: formato_excel(r["cantidad_tomada"], r["unidad"]),
+            axis=1
+        )
+
+        vista["ctd_faltante"] = vista.apply(
+            lambda r: formato_excel(r["ctd_faltante"], r["unidad"]),
+            axis=1
+        )
+
+        vista = vista.rename(columns={
+            "proyecto": "Definición proyecto",
+            "reserva": "Reserva",
+            "material": "Material",
+            "texto_material": "Texto material",
+            "unidad": "Unidad",
+            "cantidad_necesaria": "Cantidad necesaria",
+            "cantidad_tomada": "Cantidad tomada",
+            "ctd_faltante": "Ctd.faltante",
+            "bodega": "Bodega"
+        })
+
+        vista = vista[
+            [
+                "Definición proyecto",
+                "Reserva",
+                "Material",
+                "Texto material",
+                "Unidad",
+                "Cantidad necesaria",
+                "Cantidad tomada",
+                "Ctd.faltante",
+                "Bodega"
+            ]
+        ]
+
+        st.markdown("### Vista detalle igual al Excel")
+        st.dataframe(vista, use_container_width=True, hide_index=True)
+
+    # ==================================================
+    # VISTA 2: RESUMEN CONSOLIDADO
+    # ==================================================
+    else:
+
+        tabla = df_filtrado.pivot_table(
+            index=["material", "texto_material", "unidad"],
+            columns="bodega",
+            values="cantidad_tomada",
+            aggfunc="sum",
+            fill_value=0
+        ).reset_index()
+
+        if "Constitución" not in tabla.columns:
+            tabla["Constitución"] = 0
+
+        if "Hualañé" not in tabla.columns:
+            tabla["Hualañé"] = 0
+
+        otras_bodegas = [
+            c for c in tabla.columns
+            if c not in ["material", "texto_material", "unidad", "Constitución", "Hualañé"]
+        ]
+
+        tabla["Total"] = tabla[["Constitución", "Hualañé"] + otras_bodegas].sum(axis=1)
+
+        tabla_mostrar = tabla.copy()
+
+        for col in [c for c in tabla_mostrar.columns if c not in ["material", "texto_material", "unidad"]]:
+            tabla_mostrar[col] = tabla_mostrar.apply(
+                lambda r, col=col: formato_excel(r[col], r["unidad"]),
+                axis=1
+            )
+
+        tabla_mostrar = tabla_mostrar.rename(columns={
+            "material": "Material",
+            "texto_material": "Texto material",
+            "unidad": "Unidad"
+        })
+
+        columnas_orden = ["Material", "Texto material", "Unidad"]
+        for col in ["Constitución", "Hualañé"]:
+            if col in tabla_mostrar.columns:
+                columnas_orden.append(col)
+
+        for col in tabla_mostrar.columns:
+            if col not in columnas_orden and col != "Total":
+                columnas_orden.append(col)
+
+        columnas_orden.append("Total")
+        tabla_mostrar = tabla_mostrar[columnas_orden]
+
+        st.markdown("### Resumen consolidado por material")
+        st.dataframe(tabla_mostrar, use_container_width=True, hide_index=True)
+
+        st.markdown("### Estado de stock")
+
+        st.caption("🔴 Stock crítico (0 - 5) | 🟠 Stock bajo (6 - 10) | 🟢 Stock normal (>10)")
+
+        def color_total(val):
+            try:
+                val = float(val)
+            except:
+                return ""
+
+            if val <= 5:
+                return "color:red"
+            elif val <= 10:
+                return "color:orange"
+            return "color:green"
+
+        tabla_color = tabla.copy()
+        tabla_color = tabla_color.rename(columns={
+            "material": "Material",
+            "texto_material": "Texto material",
+            "unidad": "Unidad"
+        })
+
+        st.dataframe(
+            tabla_color[["Material", "Texto material", "Unidad", "Total"]]
+            .style.map(color_total, subset=["Total"]),
+            use_container_width=True,
+            hide_index=True
+        )
 
     st.divider()
 
     # -------------------------
     # GRAFICO
     # -------------------------
-    total_const = df[df["bodega"] == "Constitución"]["cantidad_tomada"].sum()
-    total_hual = df[df["bodega"] == "Hualañé"]["cantidad_tomada"].sum()
+    resumen_bodega = df_filtrado.groupby("bodega", as_index=False)["cantidad_tomada"].sum()
 
-    col1, col2, col3 = st.columns([1, 2, 1])
+    if not resumen_bodega.empty:
+        st.markdown("### Gráfico por bodega")
 
-    with col2:
-        fig, ax = plt.subplots(figsize=(4, 3))
+        col1, col2, col3 = st.columns([1, 2, 1])
 
-        ax.bar(
-            ["Constitución", "Hualañé"],
-            [total_const, total_hual]
-        )
-
-        ax.set_title("Stock total por bodega")
-
-        st.pyplot(fig)
+        with col2:
+            fig, ax = plt.subplots(figsize=(5, 3))
+            ax.bar(resumen_bodega["bodega"], resumen_bodega["cantidad_tomada"])
+            ax.set_title("Cantidad tomada por bodega")
+            ax.set_ylabel("Total")
+            st.pyplot(fig)
