@@ -2,6 +2,19 @@ import streamlit as st
 import pandas as pd
 from database import conectar
 
+
+def formato_excel(valor, unidad):
+    try:
+        unidad = str(unidad).strip().upper()
+
+        if unidad in ["KG", "M"]:
+            return f"{float(valor):.3f}".replace(".", ",")
+
+        return str(int(float(valor)))
+    except:
+        return "0"
+
+
 def inventario(bodega):
 
     st.subheader("Inventario")
@@ -20,6 +33,7 @@ def inventario(bodega):
             ctd_faltante
         FROM inventario
         WHERE bodega=%s
+        ORDER BY proyecto, reserva, material
     """, conn, params=(bodega,))
 
     conn.close()
@@ -29,25 +43,29 @@ def inventario(bodega):
         return
 
     # -------------------------
-    # NUMEROS
+    # LIMPIAR DATOS
     # -------------------------
+    df["proyecto"] = df["proyecto"].astype(str).str.strip()
+    df["reserva"] = df["reserva"].astype(str).str.strip()
+    df["material"] = df["material"].astype(str).str.strip()
+    df["texto_material"] = df["texto_material"].astype(str).str.strip()
+    df["unidad"] = df["unidad"].astype(str).str.strip().str.upper()
 
     df["cantidad_necesaria"] = pd.to_numeric(
         df["cantidad_necesaria"], errors="coerce"
-    ).fillna(0).astype(int)
+    ).fillna(0)
 
     df["cantidad_tomada"] = pd.to_numeric(
         df["cantidad_tomada"], errors="coerce"
-    ).fillna(0).astype(int)
+    ).fillna(0)
 
     df["ctd_faltante"] = pd.to_numeric(
         df["ctd_faltante"], errors="coerce"
-    ).fillna(0).astype(int)
+    ).fillna(0)
 
     # -------------------------
     # PANEL DE CONTROL
     # -------------------------
-
     total_materiales = len(df)
     reservas_activas = df["reserva"].nunique()
     faltantes = (df["ctd_faltante"] > 0).sum()
@@ -65,7 +83,6 @@ def inventario(bodega):
     # -------------------------
     # BUSCADOR
     # -------------------------
-
     buscar = st.text_input("Buscar por reserva, material o descripción")
 
     if buscar:
@@ -75,14 +92,17 @@ def inventario(bodega):
             df["texto_material"].astype(str).str.contains(buscar, case=False, na=False)
         ]
 
+    if df.empty:
+        st.info("No se encontraron resultados")
+        return
+
     # -------------------------
     # ESTADO MATERIAL
     # -------------------------
-
     def estado(row):
-        if row["cantidad_tomada"] <= 0:
+        if float(row["cantidad_tomada"]) <= 0:
             return "🔴 Sin stock"
-        elif row["cantidad_tomada"] < row["cantidad_necesaria"]:
+        elif float(row["cantidad_tomada"]) < float(row["cantidad_necesaria"]):
             return "🟡 Pendiente"
         else:
             return "🟢 Completo"
@@ -90,10 +110,29 @@ def inventario(bodega):
     df["estado"] = df.apply(estado, axis=1)
 
     # -------------------------
+    # FORMATO PARA MOSTRAR
+    # -------------------------
+    vista = df.copy()
+
+    vista["cantidad_necesaria"] = vista.apply(
+        lambda r: formato_excel(r["cantidad_necesaria"], r["unidad"]),
+        axis=1
+    )
+
+    vista["cantidad_tomada"] = vista.apply(
+        lambda r: formato_excel(r["cantidad_tomada"], r["unidad"]),
+        axis=1
+    )
+
+    vista["ctd_faltante"] = vista.apply(
+        lambda r: formato_excel(r["ctd_faltante"], r["unidad"]),
+        axis=1
+    )
+
+    # -------------------------
     # RENOMBRAR COLUMNAS
     # -------------------------
-
-    df = df.rename(columns={
+    vista = vista.rename(columns={
         "proyecto": "Proyecto",
         "reserva": "Reserva",
         "material": "Material",
@@ -106,15 +145,23 @@ def inventario(bodega):
     })
 
     # -------------------------
-    # FORMATO TIPO EXCEL
+    # ORDEN DE COLUMNAS
     # -------------------------
-
-    df["Cantidad necesaria"] = df["Cantidad necesaria"].map("{:,}".format)
-    df["Cantidad tomada"] = df["Cantidad tomada"].map("{:,}".format)
-    df["Cantidad faltante"] = df["Cantidad faltante"].map("{:,}".format)
+    vista = vista[
+        [
+            "Proyecto",
+            "Reserva",
+            "Material",
+            "Texto material",
+            "Unidad",
+            "Cantidad necesaria",
+            "Cantidad tomada",
+            "Cantidad faltante",
+            "Estado"
+        ]
+    ]
 
     # -------------------------
     # TABLA INVENTARIO
     # -------------------------
-
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(vista, use_container_width=True, hide_index=True)
