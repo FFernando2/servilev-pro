@@ -17,7 +17,7 @@ def formato_excel(valor, unidad):
 
 def inventario(bodega):
 
-    st.subheader("Inventario")
+    st.subheader(f"Inventario - Bodega {bodega}")
 
     conn = conectar()
 
@@ -39,7 +39,7 @@ def inventario(bodega):
     conn.close()
 
     if df.empty:
-        st.info("No hay materiales en el inventario")
+        st.info(f"No hay materiales en el inventario de {bodega}")
         return
 
     # -------------------------
@@ -66,53 +66,77 @@ def inventario(bodega):
     # -------------------------
     # PANEL DE CONTROL
     # -------------------------
-    total_materiales = len(df)
+    total_filas = len(df)
+    materiales_unicos = df["material"].nunique()
     reservas_activas = df["reserva"].nunique()
     faltantes = (df["ctd_faltante"] > 0).sum()
-    sin_stock = (df["cantidad_tomada"] <= 0).sum()
 
     col1, col2, col3, col4 = st.columns(4)
 
-    col1.metric("Materiales", int(total_materiales))
-    col2.metric("Reservas activas", int(reservas_activas))
-    col3.metric("Material faltante", int(faltantes))
-    col4.metric("Sin stock", int(sin_stock))
+    col1.metric("Filas", int(total_filas))
+    col2.metric("Materiales únicos", int(materiales_unicos))
+    col3.metric("Reservas activas", int(reservas_activas))
+    col4.metric("Con faltante", int(faltantes))
 
     st.divider()
 
     # -------------------------
-    # BUSCADOR
+    # FILTROS
     # -------------------------
-    buscar = st.text_input("Buscar por reserva, material o descripción")
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        buscar = st.text_input("Buscar por reserva, material o descripción")
+
+    with col2:
+        reservas = ["Todas"] + sorted(df["reserva"].dropna().unique().tolist())
+        reserva_sel = st.selectbox("Filtrar por reserva", reservas)
+
+    with col3:
+        estados = ["Todos", "Sin stock", "Pendiente", "Completo"]
+        estado_sel = st.selectbox("Filtrar por estado", estados)
 
     if buscar:
         df = df[
-            df["reserva"].astype(str).str.contains(buscar, case=False, na=False) |
-            df["material"].astype(str).str.contains(buscar, case=False, na=False) |
-            df["texto_material"].astype(str).str.contains(buscar, case=False, na=False)
+            df["reserva"].str.contains(buscar, case=False, na=False) |
+            df["material"].str.contains(buscar, case=False, na=False) |
+            df["texto_material"].str.contains(buscar, case=False, na=False) |
+            df["proyecto"].str.contains(buscar, case=False, na=False)
         ]
 
-    if df.empty:
-        st.info("No se encontraron resultados")
-        return
+    if reserva_sel != "Todas":
+        df = df[df["reserva"] == reserva_sel]
 
     # -------------------------
     # ESTADO MATERIAL
     # -------------------------
     def estado(row):
         if float(row["cantidad_tomada"]) <= 0:
-            return "🔴 Sin stock"
+            return "Sin stock"
         elif float(row["cantidad_tomada"]) < float(row["cantidad_necesaria"]):
-            return "🟡 Pendiente"
+            return "Pendiente"
         else:
-            return "🟢 Completo"
+            return "Completo"
 
     df["estado"] = df.apply(estado, axis=1)
+
+    if estado_sel != "Todos":
+        df = df[df["estado"] == estado_sel]
+
+    if df.empty:
+        st.info(f"No hay resultados para la bodega {bodega}")
+        return
 
     # -------------------------
     # FORMATO PARA MOSTRAR
     # -------------------------
     vista = df.copy()
+
+    vista["estado"] = vista["estado"].map({
+        "Sin stock": "🔴 Sin stock",
+        "Pendiente": "🟡 Pendiente",
+        "Completo": "🟢 Completo"
+    })
 
     vista["cantidad_necesaria"] = vista.apply(
         lambda r: formato_excel(r["cantidad_necesaria"], r["unidad"]),
@@ -133,14 +157,14 @@ def inventario(bodega):
     # RENOMBRAR COLUMNAS
     # -------------------------
     vista = vista.rename(columns={
-        "proyecto": "Proyecto",
+        "proyecto": "Definición proyecto",
         "reserva": "Reserva",
         "material": "Material",
         "texto_material": "Texto material",
         "unidad": "Unidad",
         "cantidad_necesaria": "Cantidad necesaria",
         "cantidad_tomada": "Cantidad tomada",
-        "ctd_faltante": "Cantidad faltante",
+        "ctd_faltante": "Ctd.faltante",
         "estado": "Estado"
     })
 
@@ -149,14 +173,14 @@ def inventario(bodega):
     # -------------------------
     vista = vista[
         [
-            "Proyecto",
+            "Definición proyecto",
             "Reserva",
             "Material",
             "Texto material",
             "Unidad",
             "Cantidad necesaria",
             "Cantidad tomada",
-            "Cantidad faltante",
+            "Ctd.faltante",
             "Estado"
         ]
     ]
