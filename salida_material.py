@@ -4,31 +4,71 @@ from database import conectar
 from datetime import date
 
 
+def crear_tabla_trabajos():
+    conn = conectar()
+    c = conn.cursor()
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS trabajos (
+            id SERIAL PRIMARY KEY,
+            proyecto TEXT NOT NULL,
+            reserva TEXT NOT NULL,
+            bodega TEXT NOT NULL
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def formato_excel(valor, unidad):
+    try:
+        unidad = str(unidad).strip().upper()
+
+        if unidad in ["KG", "M"]:
+            return f"{float(valor):.3f}".replace(".", ",")
+
+        return str(int(float(valor)))
+    except:
+        return "0"
+
+
 def salida_material(bodega):
 
     st.subheader(f"Salida de Material - Bodega {bodega}")
 
+    crear_tabla_trabajos()
+
     conn = conectar()
 
     # -------------------------
-    # PROYECTO ORIGEN
+    # PROYECTO / RESERVA ORIGEN
     # -------------------------
-
     proyectos = pd.read_sql_query(
-        "SELECT DISTINCT proyecto FROM inventario WHERE bodega=%s ORDER BY proyecto",
+        """
+        SELECT DISTINCT proyecto
+        FROM trabajos
+        WHERE bodega=%s
+        ORDER BY proyecto
+        """,
         conn,
         params=(bodega,)
     )
 
     if proyectos.empty:
-        st.warning("No existen proyectos en inventario")
+        st.warning("No existen trabajos registrados en esta bodega")
         conn.close()
         return
 
-    proyecto = st.selectbox("Proyecto origen", proyectos["proyecto"])
+    proyecto = st.selectbox("Proyecto origen", proyectos["proyecto"].tolist())
 
     reservas = pd.read_sql_query(
-        "SELECT DISTINCT reserva FROM inventario WHERE proyecto=%s AND bodega=%s ORDER BY reserva",
+        """
+        SELECT DISTINCT reserva
+        FROM trabajos
+        WHERE proyecto=%s AND bodega=%s
+        ORDER BY reserva
+        """,
         conn,
         params=(proyecto, bodega)
     )
@@ -38,12 +78,46 @@ def salida_material(bodega):
         conn.close()
         return
 
-    reserva = st.selectbox("Reserva origen", reservas["reserva"])
+    reserva = st.selectbox("Reserva origen", reservas["reserva"].tolist())
+
+    # -------------------------
+    # RESUMEN TRABAJO ORIGEN
+    # -------------------------
+    resumen = pd.read_sql_query(
+        """
+        SELECT
+            COUNT(*) AS materiales_cargados,
+            SUM(CASE WHEN COALESCE(cantidad_tomada, 0) > 0 THEN 1 ELSE 0 END) AS materiales_con_stock,
+            SUM(CASE WHEN COALESCE(ctd_faltante, 0) > 0 THEN 1 ELSE 0 END) AS materiales_con_faltante
+        FROM inventario
+        WHERE proyecto=%s AND reserva=%s AND bodega=%s
+        """,
+        conn,
+        params=(proyecto, reserva, bodega)
+    )
+
+    materiales_cargados = 0
+    materiales_con_stock = 0
+    materiales_con_faltante = 0
+
+    if not resumen.empty:
+        materiales_cargados = int(resumen.iloc[0]["materiales_cargados"] or 0)
+        materiales_con_stock = int(resumen.iloc[0]["materiales_con_stock"] or 0)
+        materiales_con_faltante = int(resumen.iloc[0]["materiales_con_faltante"] or 0)
+
+    st.markdown("### Resumen del trabajo origen")
+
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric("Proyecto", proyecto)
+    r2.metric("Reserva", reserva)
+    r3.metric("Con stock", materiales_con_stock)
+    r4.metric("Con faltante", materiales_con_faltante)
+
+    st.divider()
 
     # -------------------------
     # TIPO DE SALIDA
     # -------------------------
-
     tipo = st.selectbox(
         "Tipo de salida",
         ["Salida normal", "Transferencia entre proyectos"]
@@ -57,45 +131,82 @@ def salida_material(bodega):
 
         st.markdown("### Proyecto destino")
 
-        proyecto_destino = st.selectbox("Proyecto destino", proyectos["proyecto"])
-
-        reservas_dest = pd.read_sql_query(
-            "SELECT DISTINCT reserva FROM inventario WHERE proyecto=%s AND bodega=%s ORDER BY reserva",
+        proyectos_dest = pd.read_sql_query(
+            """
+            SELECT DISTINCT proyecto
+            FROM trabajos
+            WHERE bodega=%s
+            ORDER BY proyecto
+            """,
             conn,
-            params=(proyecto_destino, bodega)
+            params=(bodega,)
         )
 
-        if not reservas_dest.empty:
-            reserva_destino = st.selectbox("Reserva destino", reservas_dest["reserva"])
+        lista_proyectos_dest = proyectos_dest["proyecto"].tolist()
+        lista_proyectos_dest.append("➕ Crear proyecto destino nuevo")
+
+        proyecto_destino_sel = st.selectbox("Proyecto destino", lista_proyectos_dest)
+
+        if proyecto_destino_sel == "➕ Crear proyecto destino nuevo":
+            proyecto_destino = st.text_input("Nuevo proyecto destino")
+            reserva_destino = st.text_input("Nueva reserva destino")
         else:
-            reserva_destino = st.text_input("Reserva destino")
+            proyecto_destino = proyecto_destino_sel
+
+            reservas_dest = pd.read_sql_query(
+                """
+                SELECT DISTINCT reserva
+                FROM trabajos
+                WHERE proyecto=%s AND bodega=%s
+                ORDER BY reserva
+                """,
+                conn,
+                params=(proyecto_destino, bodega)
+            )
+
+            lista_reservas_dest = reservas_dest["reserva"].tolist() if not reservas_dest.empty else []
+            lista_reservas_dest.append("➕ Crear reserva destino nueva")
+
+            reserva_dest_sel = st.selectbox("Reserva destino", lista_reservas_dest)
+
+            if reserva_dest_sel == "➕ Crear reserva destino nueva":
+                reserva_destino = st.text_input("Nueva reserva destino")
+            else:
+                reserva_destino = reserva_dest_sel
 
         motivo = st.text_input("Motivo de transferencia")
 
     # -------------------------
     # BUSCADOR
     # -------------------------
-
     buscar = st.text_input("🔎 Buscar material")
 
     df = pd.read_sql_query("""
-        SELECT id, material, texto_material, unidad, cantidad_tomada
+        SELECT id, material, texto_material, unidad, cantidad_tomada, cantidad_necesaria, ctd_faltante
         FROM inventario
-        WHERE proyecto=%s AND reserva=%s AND bodega=%s AND cantidad_tomada > 0
+        WHERE proyecto=%s
+          AND reserva=%s
+          AND bodega=%s
+          AND COALESCE(cantidad_tomada, 0) > 0
         ORDER BY material
     """, conn, params=(proyecto, reserva, bodega))
 
     if df.empty:
-        st.warning("No hay materiales disponibles")
+        st.warning("No hay materiales disponibles con stock")
         conn.close()
         return
 
-    df["cantidad_tomada"] = pd.to_numeric(df["cantidad_tomada"], errors="coerce").fillna(0).astype(int)
+    df["material"] = df["material"].astype(str).str.strip()
+    df["texto_material"] = df["texto_material"].astype(str).str.strip()
+    df["unidad"] = df["unidad"].astype(str).str.strip().str.upper()
+    df["cantidad_tomada"] = pd.to_numeric(df["cantidad_tomada"], errors="coerce").fillna(0)
+    df["cantidad_necesaria"] = pd.to_numeric(df["cantidad_necesaria"], errors="coerce").fillna(0)
+    df["ctd_faltante"] = pd.to_numeric(df["ctd_faltante"], errors="coerce").fillna(0)
 
     if buscar:
         df = df[
-            df["material"].astype(str).str.contains(buscar, case=False, na=False) |
-            df["texto_material"].astype(str).str.contains(buscar, case=False, na=False)
+            df["material"].str.contains(buscar, case=False, na=False) |
+            df["texto_material"].str.contains(buscar, case=False, na=False)
         ]
 
     if df.empty:
@@ -111,10 +222,9 @@ def salida_material(bodega):
     # -------------------------
     # LISTA DE MATERIALES
     # -------------------------
-
     for _, row in df.iterrows():
 
-        col1, col2, col3, col4, col5 = st.columns([1, 2, 3, 2, 2])
+        col1, col2, col3, col4, col5 = st.columns([1, 2, 4, 2, 2])
 
         with col1:
             usar = st.checkbox("", key=f"use_{row['id']}")
@@ -126,57 +236,87 @@ def salida_material(bodega):
             st.write(row["texto_material"])
 
         with col4:
-            st.write(f"Stock: {row['cantidad_tomada']:,}")
+            st.write(f"Stock: {formato_excel(row['cantidad_tomada'], row['unidad'])} {row['unidad']}")
 
         with col5:
-            cantidad = st.number_input(
-                "Cantidad",
-                min_value=0,
-                max_value=int(row["cantidad_tomada"]),
-                step=1,
-                format="%d",
-                key=f"cant_{row['id']}"
-            )
+            if str(row["unidad"]).strip().upper() in ["KG", "M"]:
+                cantidad = st.number_input(
+                    "Cantidad",
+                    min_value=0.0,
+                    max_value=float(row["cantidad_tomada"]),
+                    step=0.001,
+                    format="%.3f",
+                    key=f"cant_{row['id']}"
+                )
+            else:
+                cantidad = st.number_input(
+                    "Cantidad",
+                    min_value=0,
+                    max_value=int(row["cantidad_tomada"]),
+                    step=1,
+                    format="%d",
+                    key=f"cant_{row['id']}"
+                )
 
-        if usar and cantidad > 0:
-            materiales_salida.append((row, int(cantidad)))
+        if usar and float(cantidad) > 0:
+            materiales_salida.append((row, float(cantidad)))
 
     # -------------------------
     # DATOS SALIDA
     # -------------------------
-
     st.divider()
 
-    col1, col2, col3 = st.columns(3)
+    c1, c2, c3 = st.columns(3)
 
-    with col1:
+    with c1:
         fecha = st.date_input("Fecha", value=date.today())
 
-    with col2:
+    with c2:
         responsable = st.text_input("Responsable")
 
-    with col3:
+    with c3:
         documento = st.text_input("Documento / OT")
+
+    # -------------------------
+    # RESUMEN DE SALIDA
+    # -------------------------
+    total_items = len(materiales_salida)
+
+    st.markdown("### Resumen de salida")
+
+    s1, s2, s3, s4 = st.columns(4)
+    s1.metric("Proyecto origen", proyecto)
+    s2.metric("Reserva origen", reserva)
+    s3.metric("Ítems seleccionados", total_items)
+    s4.metric("Tipo", tipo)
 
     # -------------------------
     # REGISTRAR SALIDA
     # -------------------------
-
-    if st.button("Registrar salida"):
+    if st.button("Registrar salida", use_container_width=True):
 
         if len(materiales_salida) == 0:
             st.warning("No seleccionaste materiales")
             conn.close()
             return
 
+        if tipo == "Transferencia entre proyectos":
+            proyecto_destino = str(proyecto_destino).strip()
+            reserva_destino = str(reserva_destino).strip()
+
+            if not proyecto_destino or not reserva_destino:
+                st.warning("Debe completar proyecto y reserva destino")
+                conn.close()
+                return
+
         try:
             c = conn.cursor()
 
             for row, cantidad in materiales_salida:
 
-                # VALIDACIÓN REAL DE STOCK
+                # VALIDACION DE STOCK
                 c.execute("""
-                    SELECT cantidad_tomada
+                    SELECT cantidad_tomada, cantidad_necesaria
                     FROM inventario
                     WHERE id=%s
                 """, (row["id"],))
@@ -184,21 +324,21 @@ def salida_material(bodega):
                 stock_actual = c.fetchone()
 
                 if not stock_actual:
+                    conn.close()
                     st.error(f"No se encontró el material {row['material']}")
-                    conn.close()
                     return
 
-                stock_actual = int(stock_actual[0] or 0)
+                stock_actual_val = float(stock_actual[0] or 0)
+                cantidad_necesaria_actual = float(stock_actual[1] or 0)
 
-                if cantidad > stock_actual:
+                if float(cantidad) > stock_actual_val:
+                    conn.close()
                     st.error(f"Stock insuficiente para {row['material']}")
-                    conn.close()
                     return
 
                 # -------------------------
-                # REGISTRAR SALIDA
+                # SALIDA
                 # -------------------------
-
                 c.execute("""
                     INSERT INTO salidas
                     (fecha, proyecto, reserva, material, texto_material,
@@ -212,7 +352,7 @@ def salida_material(bodega):
                     row["texto_material"],
                     row["unidad"],
                     cantidad,
-                    proyecto_destino,
+                    proyecto_destino if tipo == "Transferencia entre proyectos" else "",
                     responsable,
                     documento,
                     bodega
@@ -221,7 +361,6 @@ def salida_material(bodega):
                 # -------------------------
                 # MOVIMIENTOS
                 # -------------------------
-
                 c.execute("""
                     INSERT INTO movimientos
                     (fecha, tipo, proyecto, reserva, material,
@@ -241,28 +380,43 @@ def salida_material(bodega):
                 ))
 
                 # -------------------------
-                # DESCONTAR INVENTARIO
+                # DESCONTAR INVENTARIO ORIGEN
                 # -------------------------
-
-                nuevo_stock = stock_actual - cantidad
+                nuevo_stock = stock_actual_val - float(cantidad)
+                nuevo_faltante = max(cantidad_necesaria_actual - nuevo_stock, 0)
 
                 c.execute("""
                     UPDATE inventario
                     SET cantidad_tomada=%s,
-                        ctd_faltante=GREATEST(cantidad_necesaria - %s, 0)
+                        ctd_faltante=%s
                     WHERE id=%s
                 """, (
                     nuevo_stock,
-                    nuevo_stock,
+                    nuevo_faltante,
                     row["id"]
                 ))
 
                 # -------------------------
                 # TRANSFERENCIA
                 # -------------------------
-
                 if tipo == "Transferencia entre proyectos":
 
+                    # crear trabajo destino si no existe
+                    c.execute("""
+                        SELECT id
+                        FROM trabajos
+                        WHERE proyecto=%s AND reserva=%s AND bodega=%s
+                    """, (proyecto_destino, reserva_destino, bodega))
+
+                    trabajo_dest = c.fetchone()
+
+                    if not trabajo_dest:
+                        c.execute("""
+                            INSERT INTO trabajos (proyecto, reserva, bodega)
+                            VALUES (%s, %s, %s)
+                        """, (proyecto_destino, reserva_destino, bodega))
+
+                    # registrar en prestamos
                     c.execute("""
                         INSERT INTO prestamos
                         (fecha, proyecto_origen, reserva_origen,
@@ -284,10 +438,13 @@ def salida_material(bodega):
                         bodega
                     ))
 
+                    # actualizar o insertar destino
                     c.execute("""
                         SELECT id, cantidad_tomada, cantidad_necesaria
                         FROM inventario
                         WHERE proyecto=%s AND reserva=%s AND material=%s AND bodega=%s
+                        ORDER BY id
+                        LIMIT 1
                     """, (
                         proyecto_destino,
                         reserva_destino,
@@ -295,22 +452,26 @@ def salida_material(bodega):
                         bodega
                     ))
 
-                    existe = c.fetchone()
+                    existe_dest = c.fetchone()
 
-                    if existe:
-                        nuevo_destino = int(existe[1] or 0) + cantidad
-                        cantidad_necesaria_dest = int(existe[2] or 0)
+                    if existe_dest:
+                        nuevo_destino = float(existe_dest[1] or 0) + float(cantidad)
+                        cantidad_necesaria_dest = float(existe_dest[2] or 0)
                         faltante_dest = max(cantidad_necesaria_dest - nuevo_destino, 0)
 
                         c.execute("""
                             UPDATE inventario
                             SET cantidad_tomada=%s,
-                                ctd_faltante=%s
+                                ctd_faltante=%s,
+                                texto_material=%s,
+                                unidad=%s
                             WHERE id=%s
                         """, (
                             nuevo_destino,
                             faltante_dest,
-                            existe[0]
+                            row["texto_material"],
+                            row["unidad"],
+                            existe_dest[0]
                         ))
                     else:
                         c.execute("""
@@ -325,7 +486,7 @@ def salida_material(bodega):
                             row["texto_material"],
                             row["unidad"],
                             0,
-                            cantidad,
+                            float(cantidad),
                             0,
                             bodega
                         ))
