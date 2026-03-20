@@ -27,7 +27,6 @@ def crear_tabla_trabajos():
 # LIMPIAR NUMEROS
 # -----------------------------
 def limpiar_numero(valor, unidad):
-
     if pd.isna(valor):
         return 0
 
@@ -83,7 +82,7 @@ def formato_excel(valor, unidad):
 
 
 # -----------------------------
-# FUNCIÓN PRINCIPAL
+# FUNCION PRINCIPAL
 # -----------------------------
 def cargar_excel_inventario(bodega):
 
@@ -91,6 +90,60 @@ def cargar_excel_inventario(bodega):
 
     crear_tabla_trabajos()
 
+    # -----------------------------
+    # BOTON BORRAR INVENTARIO
+    # -----------------------------
+    st.divider()
+    st.subheader("Eliminar inventario")
+
+    if "confirmar_borrar_inventario" not in st.session_state:
+        st.session_state.confirmar_borrar_inventario = False
+
+    if not st.session_state.confirmar_borrar_inventario:
+
+        if st.button("🗑️ Borrar inventario de esta bodega", use_container_width=True):
+            st.session_state.confirmar_borrar_inventario = True
+            st.rerun()
+
+    else:
+        st.warning("⚠️ Esto eliminará todo el inventario de la bodega actual.")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("✅ Confirmar borrado", use_container_width=True):
+                conn = conectar()
+                c = conn.cursor()
+
+                try:
+                    c.execute("""
+                        DELETE FROM inventario
+                        WHERE bodega = %s
+                    """, (bodega,))
+
+                    conn.commit()
+                    st.success("Inventario eliminado correctamente")
+
+                except Exception as e:
+                    conn.rollback()
+                    st.error(f"Error al borrar inventario: {e}")
+
+                finally:
+                    conn.close()
+
+                st.session_state.confirmar_borrar_inventario = False
+                st.rerun()
+
+        with col2:
+            if st.button("❌ Cancelar", use_container_width=True):
+                st.session_state.confirmar_borrar_inventario = False
+                st.rerun()
+
+    st.divider()
+
+    # -----------------------------
+    # SUBIR ARCHIVO
+    # -----------------------------
     archivo = st.file_uploader(
         "Seleccionar archivo Excel",
         type=["xlsx"]
@@ -166,7 +219,7 @@ def cargar_excel_inventario(bodega):
         return
 
     # -----------------------------
-    # LIMPIAR NÚMEROS
+    # LIMPIAR NUMEROS
     # -----------------------------
     df["Cantidad necesaria"] = df.apply(
         lambda r: limpiar_numero(r["Cantidad necesaria"], r["Unidad"]),
@@ -183,7 +236,7 @@ def cargar_excel_inventario(bodega):
         axis=1
     )
 
-    # Mantener el faltante en positivo como viene normalmente en Excel
+    # mantener faltante positivo visualmente
     df["Ctd.faltante"] = df["Ctd.faltante"].apply(abs)
 
     # -----------------------------
@@ -210,7 +263,7 @@ def cargar_excel_inventario(bodega):
     st.dataframe(vista, use_container_width=True, hide_index=True)
 
     # -----------------------------
-    # CARGAR A BD
+    # CARGAR A BASE DE DATOS
     # -----------------------------
     if st.button("Cargar inventario", use_container_width=True):
 
@@ -239,13 +292,12 @@ def cargar_excel_inventario(bodega):
                 c.execute("""
                     SELECT id
                     FROM trabajos
-                    WHERE proyecto=%s AND reserva=%s AND bodega=%s
+                    WHERE proyecto = %s AND reserva = %s AND bodega = %s
                 """, (proyecto, reserva, bodega))
 
                 if not c.fetchone():
                     c.execute("""
-                        INSERT INTO trabajos
-                        (proyecto, reserva, bodega)
+                        INSERT INTO trabajos (proyecto, reserva, bodega)
                         VALUES (%s, %s, %s)
                     """, (proyecto, reserva, bodega))
                     trabajos_creados += 1
