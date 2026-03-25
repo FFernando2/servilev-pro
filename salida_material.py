@@ -84,7 +84,7 @@ def salida_material(bodega):
     # RESUMEN TRABAJO ORIGEN
     # -------------------------
     resumen = pd.read_sql_query(
-        """
+        """+
         SELECT
             COUNT(*) AS materiales_cargados,
             SUM(CASE WHEN COALESCE(cantidad_tomada, 0) > 0 THEN 1 ELSE 0 END) AS materiales_con_stock,
