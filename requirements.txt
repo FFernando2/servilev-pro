@@ -1,7 +1,7 @@
 streamlit
 pandas
 psycopg2-binary
-python-dotenv
-matplotlib
-xlsxwriter
+Werkzeug
 openpyxl
+xlsxwriter
+python-dotenv
