@@ -5,3 +5,4 @@ Werkzeug
 openpyxl
 xlsxwriter
 python-dotenv
+matplotlib
