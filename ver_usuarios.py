@@ -1,12 +1,24 @@
 from database import conectar
 
-conn = conectar()
-c = conn.cursor()
+def ver_usuarios():
+    conn = None
+    try:
+        conn = conectar()
+        c = conn.cursor()
 
-c.execute("SELECT * FROM usuarios")
-usuarios = c.fetchall()
+        c.execute("SELECT usuario, rol FROM usuarios ORDER BY usuario")
+        usuarios = c.fetchall()
 
-for u in usuarios:
-    print(u)
+        print("=== USUARIOS ===")
+        for usuario, rol in usuarios:
+            print(f"Usuario: {usuario} | Rol: {rol}")
 
-conn.close()
+    except Exception as e:
+        print(f"Error: {e}")
+
+    finally:
+        if conn:
+            conn.close()
+
+if __name__ == "__main__":
+    ver_usuarios()

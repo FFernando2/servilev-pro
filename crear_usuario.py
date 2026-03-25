@@ -1,4 +1,3 @@
-# crear_usuario.py
 from database import conectar
 from werkzeug.security import generate_password_hash
 
@@ -12,9 +11,9 @@ contrasena = input("Contraseña: ").strip()
 rol = input("Rol (admin / bodega / consulta): ").strip()
 
 try:
-
-    # 🔐 encriptar contraseña
     hash_pw = generate_password_hash(contrasena)
+
+    print("HASH GENERADO:", hash_pw)
 
     c.execute("""
         INSERT INTO usuarios (usuario, contrasena, rol)
@@ -22,7 +21,6 @@ try:
     """, (usuario, hash_pw, rol))
 
     conn.commit()
-
     print("Usuario creado correctamente ✅")
     print("Contraseña guardada como HASH 🔐")
 
