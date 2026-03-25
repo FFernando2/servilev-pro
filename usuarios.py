@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 from database import conectar
+from werkzeug.security import generate_password_hash
 
 
 def usuarios():
@@ -23,7 +24,7 @@ def usuarios():
     # MOSTRAR USUARIOS
     # --------------------------------------------------
 
-    df = pd.read_sql("SELECT id, usuario, rol FROM usuarios", conn)
+    df = pd.read_sql("SELECT id, usuario, rol FROM usuarios ORDER BY id", conn)
 
     st.subheader("Usuarios del sistema")
     st.dataframe(df, use_container_width=True)
@@ -52,15 +53,21 @@ def usuarios():
 
     if st.button("Crear usuario"):
 
+        nuevo_usuario = nuevo_usuario.strip()
+        nueva_contrasena = nueva_contrasena.strip()
+
         if nuevo_usuario == "" or nueva_contrasena == "":
             st.warning("Debes completar todos los campos")
 
         else:
             try:
+                # 🔐 Encriptar contraseña antes de guardar
+                hash_pw = generate_password_hash(nueva_contrasena)
+
                 c.execute("""
                     INSERT INTO usuarios (usuario, contrasena, rol)
                     VALUES (%s, %s, %s)
-                """, (nuevo_usuario, nueva_contrasena, nuevo_rol))
+                """, (nuevo_usuario, hash_pw, nuevo_rol))
 
                 conn.commit()
 
@@ -100,7 +107,7 @@ def usuarios():
 
                 conn.commit()
 
-                st.success("Usuario eliminado correctamente")
+                st.success("Usuario eliminado correctamente ✅")
                 st.rerun()
 
             except Exception as e:
