@@ -14,7 +14,7 @@ from gestion_trabajos import gestion_trabajos
 # --------------------------------------------------
 
 st.set_page_config(
-    page_title="SERVILEV PRO",
+    page_title="SERVILEV",
     page_icon="📦",
     layout="wide"
 )
