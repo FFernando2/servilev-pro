@@ -57,7 +57,8 @@ def ingreso_material(bodega):
         opcion = st.radio(
             "Tipo de ingreso",
             ["Crear nuevo trabajo", "Agregar a trabajo existente"],
-            horizontal=True
+            horizontal=True,
+            key="tipo_ingreso"
         )
 
         proyecto = ""
@@ -68,10 +69,10 @@ def ingreso_material(bodega):
             col1, col2 = st.columns(2)
 
             with col1:
-                proyecto = st.text_input("Proyecto")
+                proyecto = st.text_input("Proyecto", key="nuevo_proyecto")
 
             with col2:
-                reserva = st.text_input("Reserva")
+                reserva = st.text_input("Reserva", key="nueva_reserva")
 
         else:
             proyectos = pd.read_sql("""
@@ -85,7 +86,11 @@ def ingreso_material(bodega):
                 st.warning("No hay proyectos registrados")
                 return
 
-            proyecto = st.selectbox("Proyecto", proyectos["proyecto"])
+            proyecto = st.selectbox(
+                "Proyecto",
+                proyectos["proyecto"],
+                key="select_proyecto"
+            )
 
             reservas = pd.read_sql("""
                 SELECT DISTINCT reserva
@@ -97,9 +102,12 @@ def ingreso_material(bodega):
                 st.warning("No hay reservas")
                 return
 
-            reserva = st.selectbox("Reserva", reservas["reserva"])
+            reserva = st.selectbox(
+                "Reserva",
+                reservas["reserva"],
+                key="select_reserva"
+            )
 
-            # RESUMEN
             resumen = pd.read_sql("""
                 SELECT COUNT(*) total,
                 SUM(CASE WHEN COALESCE(ctd_faltante,0)>0 THEN 1 ELSE 0 END) faltantes
@@ -130,33 +138,37 @@ def ingreso_material(bodega):
         opciones = catalogo["display"].tolist()
         opciones.append("➕ Nuevo material")
 
-        seleccion = st.selectbox("Material", opciones)
+        seleccion = st.selectbox(
+            "Material",
+            opciones,
+            key="select_material"
+        )
 
         if seleccion == "➕ Nuevo material":
 
             col1, col2, col3 = st.columns(3)
 
             with col1:
-                material = st.text_input("Código")
+                material = st.text_input("Código", key="nuevo_codigo")
 
             with col2:
-                texto_material = st.text_input("Descripción")
+                texto_material = st.text_input("Descripción", key="nuevo_desc")
 
             with col3:
-                unidad = st.selectbox("Unidad", ["UN","KG","M"])
+                unidad = st.selectbox("Unidad", ["UN","KG","M"], key="nuevo_unidad")
 
         else:
             fila = catalogo[catalogo["display"] == seleccion].iloc[0]
 
-            material = fila["material"]
-            texto_material = fila["texto_material"]
-            unidad = fila["unidad"]
+            material = str(fila["material"])
+            texto_material = str(fila["texto_material"])
+            unidad = str(fila["unidad"]).upper()
 
             col1, col2, col3 = st.columns(3)
 
-            col1.text_input("Código", material, disabled=True)
-            col2.text_input("Descripción", texto_material, disabled=True)
-            col3.text_input("Unidad", unidad, disabled=True)
+            col1.text_input("Código", material, disabled=True, key="mat_codigo")
+            col2.text_input("Descripción", texto_material, disabled=True, key="mat_desc")
+            col3.text_input("Unidad", unidad, disabled=True, key="mat_unidad")
 
         st.divider()
 
@@ -169,17 +181,17 @@ def ingreso_material(bodega):
 
             with col1:
                 if unidad in ["KG","M"]:
-                    cantidad = st.number_input("Cantidad", 0.0, step=0.001)
+                    cantidad = st.number_input("Cantidad", 0.0, step=0.001, key="cantidad_float")
                 else:
-                    cantidad = st.number_input("Cantidad", 1)
+                    cantidad = st.number_input("Cantidad", 1, key="cantidad_int")
 
             with col2:
-                fecha = st.date_input("Fecha", value=date.today())
+                fecha = st.date_input("Fecha", value=date.today(), key="fecha_ingreso")
 
             with col3:
-                responsable = st.text_input("Responsable")
+                responsable = st.text_input("Responsable", key="responsable")
 
-            documento = st.text_input("Documento")
+            documento = st.text_input("Documento", key="documento")
 
             st.markdown("### Resumen")
 
@@ -210,7 +222,7 @@ def ingreso_material(bodega):
 
             c = conn.cursor()
 
-            # CREAR TRABAJO
+            # TRABAJO
             c.execute("""
                 INSERT INTO trabajos (proyecto,reserva,bodega)
                 VALUES (%s,%s,%s)
