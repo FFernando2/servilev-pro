@@ -38,6 +38,44 @@ def calcular_estado(row):
 
 
 # --------------------------------------------------
+# ESTILO PARA DESTACAR CANTIDADES
+# --------------------------------------------------
+def estilo_cantidades(row):
+    estilos = []
+
+    try:
+        necesaria = float(str(row["Cantidad necesaria"]).replace(",", "."))
+        tomada = float(str(row["Cantidad tomada"]).replace(",", "."))
+        faltante = float(str(row["Ctd.faltante"]).replace(",", "."))
+    except:
+        return [""] * len(row)
+
+    for col in row.index:
+
+        if col == "Cantidad necesaria":
+            estilos.append("color:#4FC3F7; font-weight:bold")
+
+        elif col == "Cantidad tomada":
+            if tomada >= necesaria:
+                estilos.append("color:#00E676; font-weight:bold")
+            elif tomada > 0:
+                estilos.append("color:#FFD54F; font-weight:bold")
+            else:
+                estilos.append("color:#FF5252; font-weight:bold")
+
+        elif col == "Ctd.faltante":
+            if faltante > 0:
+                estilos.append("color:#FF5252; font-weight:bold")
+            else:
+                estilos.append("color:#00E676; font-weight:bold")
+
+        else:
+            estilos.append("")
+
+    return estilos
+
+
+# --------------------------------------------------
 # FUNCION PRINCIPAL
 # --------------------------------------------------
 def inventario(bodega):
@@ -101,7 +139,9 @@ def inventario(bodega):
 
     for col in columnas_texto:
         if col in df.columns:
-            df[col] = df[col].astype(str).str.strip()
+            df[col] = df[col].fillna("").astype(str).str.strip()
+            df[col] = df[col].replace("nan", "")
+            df[col] = df[col].replace("None", "")
 
     df["unidad"] = df["unidad"].astype(str).str.strip().str.upper()
 
@@ -280,4 +320,8 @@ def inventario(bodega):
     # TABLA INVENTARIO
     # --------------------------------------------------
     st.markdown("### Detalle de inventario")
-    st.dataframe(vista, use_container_width=True, hide_index=True)
+    st.dataframe(
+        vista.style.apply(estilo_cantidades, axis=1),
+        use_container_width=True,
+        hide_index=True
+    )
