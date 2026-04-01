@@ -515,12 +515,14 @@ def cargar_excel_inventario(bodega):
     # CARGAR A BASE DE DATOS
     # --------------------------------------------------
     if st.button("Cargar inventario", use_container_width=True):
+        st.write("Botón presionado ✅")
+        st.write("Filas del DataFrame antes de guardar:", len(df))
+
         conn = conectar()
         c = conn.cursor()
 
         trabajos_creados = 0
         filas_insertadas = 0
-        filas_omitidas = 0
 
         try:
             for _, row in df.iterrows():
@@ -542,7 +544,8 @@ def cargar_excel_inventario(bodega):
                 cant_tom = float(row["Cantidad tomada"])
                 faltante = float(row["Ctd.faltante"])
 
-                # Crear trabajo si no existe
+                st.write(f"Insertando material: {material} | Reserva: {reserva}")
+
                 c.execute("""
                     SELECT id
                     FROM trabajos
@@ -556,52 +559,6 @@ def cargar_excel_inventario(bodega):
                     """, (proyecto, reserva, bodega))
                     trabajos_creados += 1
 
-                # Evitar duplicado exacto en BD
-                c.execute("""
-                    SELECT id
-                    FROM inventario
-                    WHERE proyecto = %s
-                      AND COALESCE(grafo, '') = %s
-                      AND reserva = %s
-                      AND COALESCE(posicion, '') = %s
-                      AND COALESCE(operacion, '') = %s
-                      AND material = %s
-                      AND texto_material = %s
-                      AND COALESCE(batch, '') = %s
-                      AND unidad = %s
-                      AND cantidad_necesaria = %s
-                      AND cantidad_tomada = %s
-                      AND ctd_faltante = %s
-                      AND COALESCE(price_lcurrency, '') = %s
-                      AND COALESCE(storage_location, '') = %s
-                      AND COALESCE(existe_pedido, '') = %s
-                      AND COALESCE(movement_type, '') = %s
-                      AND bodega = %s
-                """, (
-                    proyecto,
-                    grafo,
-                    reserva,
-                    posicion,
-                    operacion,
-                    material,
-                    texto_material,
-                    batch,
-                    unidad,
-                    cant_nec,
-                    cant_tom,
-                    faltante,
-                    price_lcurrency,
-                    storage_location,
-                    existe_pedido,
-                    movement_type,
-                    bodega
-                ))
-
-                if c.fetchone():
-                    filas_omitidas += 1
-                    continue
-
-                # Insertar
                 c.execute("""
                     INSERT INTO inventario (
                         proyecto,
@@ -650,7 +607,10 @@ def cargar_excel_inventario(bodega):
             st.success("Excel cargado correctamente")
             st.write("Trabajos creados:", trabajos_creados)
             st.write("Filas insertadas:", filas_insertadas)
-            st.write("Filas omitidas por duplicado:", filas_omitidas)
+
+            c.execute("SELECT COUNT(*) FROM inventario WHERE bodega = %s", (bodega,))
+            total_bodega = c.fetchone()[0]
+            st.write("Total de filas en inventario para esta bodega:", total_bodega)
 
             st.rerun()
 
