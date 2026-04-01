@@ -3,9 +3,9 @@ import pandas as pd
 from database import conectar
 
 
-# -----------------------------
-# CREAR TABLA TRABAJOS (POSTGRES)
-# -----------------------------
+# --------------------------------------------------
+# CREAR TABLA TRABAJOS
+# --------------------------------------------------
 def crear_tabla_trabajos():
     conn = conectar()
     c = conn.cursor()
@@ -23,9 +23,111 @@ def crear_tabla_trabajos():
     conn.close()
 
 
-# -----------------------------
+# --------------------------------------------------
+# NORMALIZAR TEXTO
+# --------------------------------------------------
+def normalizar_texto(texto):
+    return str(texto).strip().lower()
+
+
+# --------------------------------------------------
+# BUSCAR COLUMNA REAL EN EL EXCEL
+# --------------------------------------------------
+def buscar_columna_real(df, posibles_nombres):
+    columnas_reales = {normalizar_texto(col): col for col in df.columns}
+
+    for nombre in posibles_nombres:
+        nombre_norm = normalizar_texto(nombre)
+        if nombre_norm in columnas_reales:
+            return columnas_reales[nombre_norm]
+
+    return None
+
+
+# --------------------------------------------------
+# ADAPTAR COLUMNAS SAP / EXCEL A FORMATO DEL SISTEMA
+# --------------------------------------------------
+def adaptar_columnas_excel(df_original):
+    equivalencias = {
+        "Definición proyecto": [
+            "Definición proyecto",
+            "Definición pr",
+            "Proyecto",
+            "Proyecto SAP"
+        ],
+        "Reserva": [
+            "Reserva",
+            "Reserva ",
+            "Número reserva",
+            "Numero reserva",
+            "N° Reserva"
+        ],
+        "Material": [
+            "Material",
+            "Código",
+            "Codigo"
+        ],
+        "Texto material": [
+            "Texto material",
+            "Texto material ",
+            "Descripción",
+            "Descripcion"
+        ],
+        "Unidad": [
+            "Unidad",
+            "Unidad ",
+            "Unidad medida entrada"
+        ],
+        "Cantidad necesaria": [
+            "Cantidad necesaria",
+            "Cantidad requerida",
+            "Cantidad nec"
+        ],
+        "Cantidad tomada": [
+            "Cantidad tomada",
+            "Cantidad tomada ",
+            "Cantidad retirada",
+            "Tomado"
+        ],
+        "Ctd.faltante": [
+            "Ctd.faltante",
+            "Ctd.faltante ",
+            "Cantidad faltante",
+            "Faltante"
+        ]
+    }
+
+    columnas_obligatorias = [
+        "Definición proyecto",
+        "Reserva",
+        "Material",
+        "Texto material",
+        "Unidad",
+        "Cantidad necesaria"
+    ]
+
+    df_nuevo = pd.DataFrame()
+    columnas_encontradas = {}
+    faltantes = []
+
+    for columna_destino, posibles in equivalencias.items():
+        columna_real = buscar_columna_real(df_original, posibles)
+
+        if columna_real is not None:
+            df_nuevo[columna_destino] = df_original[columna_real]
+            columnas_encontradas[columna_destino] = columna_real
+        else:
+            if columna_destino in ["Cantidad tomada", "Ctd.faltante"]:
+                df_nuevo[columna_destino] = 0
+            elif columna_destino in columnas_obligatorias:
+                faltantes.append(columna_destino)
+
+    return df_nuevo, columnas_encontradas, faltantes
+
+
+# --------------------------------------------------
 # LIMPIAR NUMEROS
-# -----------------------------
+# --------------------------------------------------
 def limpiar_numero(valor, unidad):
     if pd.isna(valor):
         return 0
@@ -35,7 +137,7 @@ def limpiar_numero(valor, unidad):
     if isinstance(valor, (int, float)):
         if unidad in ["KG", "M"]:
             return float(valor)
-        return int(valor)
+        return int(float(valor))
 
     texto = str(valor).strip()
 
@@ -46,12 +148,15 @@ def limpiar_numero(valor, unidad):
 
     if unidad in ["KG", "M"]:
         try:
+            # 5,000 -> 5.000
             if "," in texto and "." not in texto:
                 return float(texto.replace(",", "."))
 
+            # 5.000
             if "." in texto and "," not in texto:
                 return float(texto)
 
+            # 1.234,500 -> 1234.500
             if "," in texto and "." in texto:
                 texto = texto.replace(".", "").replace(",", ".")
                 return float(texto)
@@ -66,9 +171,9 @@ def limpiar_numero(valor, unidad):
         return 0
 
 
-# -----------------------------
+# --------------------------------------------------
 # FORMATO PARA MOSTRAR
-# -----------------------------
+# --------------------------------------------------
 def formato_excel(valor, unidad):
     try:
         unidad = str(unidad).strip().upper()
@@ -76,23 +181,44 @@ def formato_excel(valor, unidad):
         if unidad in ["KG", "M"]:
             return f"{float(valor):.3f}".replace(".", ",")
 
-        return str(int(valor))
+        return str(int(float(valor)))
     except:
         return "0"
 
 
-# -----------------------------
-# FUNCION PRINCIPAL
-# -----------------------------
-def cargar_excel_inventario(bodega):
+# --------------------------------------------------
+# LIMPIAR FILAS
+# --------------------------------------------------
+def limpiar_filas(df):
+    df = df.copy()
 
+    df["Definición proyecto"] = df["Definición proyecto"].astype(str).str.strip()
+    df["Reserva"] = df["Reserva"].astype(str).str.strip()
+    df["Material"] = df["Material"].astype(str).str.strip()
+    df["Texto material"] = df["Texto material"].astype(str).str.strip()
+    df["Unidad"] = df["Unidad"].astype(str).str.strip().str.upper()
+
+    df = df.dropna(how="all")
+
+    for col in ["Definición proyecto", "Reserva", "Material"]:
+        df = df[df[col].notna()]
+        df = df[df[col] != ""]
+        df = df[df[col].str.lower() != "nan"]
+
+    return df
+
+
+# --------------------------------------------------
+# FUNCION PRINCIPAL
+# --------------------------------------------------
+def cargar_excel_inventario(bodega):
     st.subheader(f"Cargar Excel Inventario - Bodega {bodega}")
 
     crear_tabla_trabajos()
 
-    # -----------------------------
-    # BOTON BORRAR INVENTARIO
-    # -----------------------------
+    # --------------------------------------------------
+    # BORRAR INVENTARIO
+    # --------------------------------------------------
     st.divider()
     st.subheader("Eliminar inventario")
 
@@ -100,11 +226,9 @@ def cargar_excel_inventario(bodega):
         st.session_state.confirmar_borrar_inventario = False
 
     if not st.session_state.confirmar_borrar_inventario:
-
         if st.button("🗑️ Borrar inventario de esta bodega", use_container_width=True):
             st.session_state.confirmar_borrar_inventario = True
             st.rerun()
-
     else:
         st.warning("⚠️ Esto eliminará todo el inventario de la bodega actual.")
 
@@ -116,18 +240,12 @@ def cargar_excel_inventario(bodega):
                 c = conn.cursor()
 
                 try:
-                    c.execute("""
-                        DELETE FROM inventario
-                        WHERE bodega = %s
-                    """, (bodega,))
-
+                    c.execute("DELETE FROM inventario WHERE bodega = %s", (bodega,))
                     conn.commit()
                     st.success("Inventario eliminado correctamente")
-
                 except Exception as e:
                     conn.rollback()
                     st.error(f"Error al borrar inventario: {e}")
-
                 finally:
                     conn.close()
 
@@ -141,13 +259,10 @@ def cargar_excel_inventario(bodega):
 
     st.divider()
 
-    # -----------------------------
+    # --------------------------------------------------
     # SUBIR ARCHIVO
-    # -----------------------------
-    archivo = st.file_uploader(
-        "Seleccionar archivo Excel",
-        type=["xlsx"]
-    )
+    # --------------------------------------------------
+    archivo = st.file_uploader("Seleccionar archivo Excel", type=["xlsx"])
 
     if archivo is None:
         return
@@ -162,55 +277,34 @@ def cargar_excel_inventario(bodega):
     hoja = st.selectbox("Hoja", hojas)
 
     try:
-        df = pd.read_excel(archivo, sheet_name=hoja)
+        df_original = pd.read_excel(archivo, sheet_name=hoja)
     except Exception as e:
         st.error(f"Error leyendo hoja: {e}")
         return
 
-    df.columns = [str(c).strip() for c in df.columns]
+    df_original.columns = [str(c).strip() for c in df_original.columns]
 
-    columnas = [
-        "Definición proyecto",
-        "Reserva",
-        "Material",
-        "Texto material",
-        "Unidad",
-        "Cantidad necesaria",
-        "Cantidad tomada",
-        "Ctd.faltante"
-    ]
+    st.markdown("### Columnas detectadas en el Excel")
+    st.write(list(df_original.columns))
 
-    for c in columnas:
-        if c not in df.columns:
-            st.error(f"Falta columna: {c}")
-            return
+    # --------------------------------------------------
+    # ADAPTAR COLUMNAS
+    # --------------------------------------------------
+    df, columnas_encontradas, faltantes = adaptar_columnas_excel(df_original)
 
-    df = df[columnas].copy()
+    if faltantes:
+        st.error(f"Faltan columnas obligatorias: {faltantes}")
+        return
+
+    st.markdown("### Columnas usadas por el sistema")
+    st.write(columnas_encontradas)
 
     st.write("Filas Excel:", len(df))
 
-    # -----------------------------
-    # LIMPIAR TEXTO
-    # -----------------------------
-    df["Definición proyecto"] = df["Definición proyecto"].astype(str).str.strip()
-    df["Reserva"] = df["Reserva"].astype(str).str.strip()
-    df["Material"] = df["Material"].astype(str).str.strip()
-    df["Texto material"] = df["Texto material"].astype(str).str.strip()
-    df["Unidad"] = df["Unidad"].astype(str).str.strip().str.upper()
-
-    df = df.dropna(how="all")
-
-    df = df[df["Definición proyecto"].notna()]
-    df = df[df["Reserva"].notna()]
-    df = df[df["Material"].notna()]
-
-    df = df[df["Definición proyecto"] != ""]
-    df = df[df["Reserva"] != ""]
-    df = df[df["Material"] != ""]
-
-    df = df[df["Definición proyecto"].str.lower() != "nan"]
-    df = df[df["Reserva"].str.lower() != "nan"]
-    df = df[df["Material"].str.lower() != "nan"]
+    # --------------------------------------------------
+    # LIMPIAR FILAS
+    # --------------------------------------------------
+    df = limpiar_filas(df)
 
     st.write("Filas válidas:", len(df))
 
@@ -218,9 +312,9 @@ def cargar_excel_inventario(bodega):
         st.warning("No hay filas válidas para cargar")
         return
 
-    # -----------------------------
-    # LIMPIAR NUMEROS
-    # -----------------------------
+    # --------------------------------------------------
+    # LIMPIAR NÚMEROS
+    # --------------------------------------------------
     df["Cantidad necesaria"] = df.apply(
         lambda r: limpiar_numero(r["Cantidad necesaria"], r["Unidad"]),
         axis=1
@@ -236,12 +330,34 @@ def cargar_excel_inventario(bodega):
         axis=1
     )
 
-    # mantener faltante positivo visualmente
     df["Ctd.faltante"] = df["Ctd.faltante"].apply(abs)
 
-    # -----------------------------
-    # VISTA PREVIA FORMATEADA
-    # -----------------------------
+    # Si el faltante viene vacío o 0, calcularlo
+    df["Ctd.faltante"] = df.apply(
+        lambda r: abs(float(r["Cantidad necesaria"]) - float(r["Cantidad tomada"]))
+        if float(r["Ctd.faltante"]) == 0 else float(r["Ctd.faltante"]),
+        axis=1
+    )
+
+    # --------------------------------------------------
+    # ELIMINAR DUPLICADOS EXACTOS DEL EXCEL
+    # --------------------------------------------------
+    df = df.drop_duplicates(subset=[
+        "Definición proyecto",
+        "Reserva",
+        "Material",
+        "Texto material",
+        "Unidad",
+        "Cantidad necesaria",
+        "Cantidad tomada",
+        "Ctd.faltante"
+    ])
+
+    st.write("Filas a cargar:", len(df))
+
+    # --------------------------------------------------
+    # VISTA PREVIA
+    # --------------------------------------------------
     vista = df.copy()
 
     vista["Cantidad necesaria"] = vista.apply(
@@ -262,20 +378,19 @@ def cargar_excel_inventario(bodega):
     st.markdown("### Vista previa")
     st.dataframe(vista, use_container_width=True, hide_index=True)
 
-    # -----------------------------
+    # --------------------------------------------------
     # CARGAR A BASE DE DATOS
-    # -----------------------------
+    # --------------------------------------------------
     if st.button("Cargar inventario", use_container_width=True):
-
         conn = conectar()
         c = conn.cursor()
 
         trabajos_creados = 0
         filas_insertadas = 0
+        filas_omitidas = 0
 
         try:
             for _, row in df.iterrows():
-
                 proyecto = str(row["Definición proyecto"]).strip()
                 reserva = str(row["Reserva"]).strip()
                 material = str(row["Material"]).strip()
@@ -286,9 +401,7 @@ def cargar_excel_inventario(bodega):
                 cant_tom = float(row["Cantidad tomada"])
                 faltante = float(row["Ctd.faltante"])
 
-                # -----------------------
-                # CREAR TRABAJO SI NO EXISTE
-                # -----------------------
+                # Crear trabajo si no existe
                 c.execute("""
                     SELECT id
                     FROM trabajos
@@ -302,9 +415,36 @@ def cargar_excel_inventario(bodega):
                     """, (proyecto, reserva, bodega))
                     trabajos_creados += 1
 
-                # -----------------------
-                # INSERTAR FILA TAL CUAL VIENE DEL EXCEL
-                # -----------------------
+                # Evitar duplicado exacto
+                c.execute("""
+                    SELECT id
+                    FROM inventario
+                    WHERE proyecto = %s
+                      AND reserva = %s
+                      AND material = %s
+                      AND texto_material = %s
+                      AND unidad = %s
+                      AND cantidad_necesaria = %s
+                      AND cantidad_tomada = %s
+                      AND ctd_faltante = %s
+                      AND bodega = %s
+                """, (
+                    proyecto,
+                    reserva,
+                    material,
+                    texto_material,
+                    unidad,
+                    cant_nec,
+                    cant_tom,
+                    faltante,
+                    bodega
+                ))
+
+                if c.fetchone():
+                    filas_omitidas += 1
+                    continue
+
+                # Insertar
                 c.execute("""
                     INSERT INTO inventario (
                         proyecto,
@@ -337,6 +477,7 @@ def cargar_excel_inventario(bodega):
             st.success("Excel cargado correctamente")
             st.write("Trabajos creados:", trabajos_creados)
             st.write("Filas insertadas:", filas_insertadas)
+            st.write("Filas omitidas por duplicado:", filas_omitidas)
 
             st.rerun()
 
