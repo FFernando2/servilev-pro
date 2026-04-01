@@ -31,7 +31,7 @@ def normalizar_texto(texto):
 
 
 # --------------------------------------------------
-# BUSCAR COLUMNA REAL EN EL EXCEL
+# BUSCAR COLUMNA REAL
 # --------------------------------------------------
 def buscar_columna_real(df, posibles_nombres):
     columnas_reales = {normalizar_texto(col): col for col in df.columns}
@@ -45,7 +45,7 @@ def buscar_columna_real(df, posibles_nombres):
 
 
 # --------------------------------------------------
-# ADAPTAR COLUMNAS SAP / EXCEL A FORMATO DEL SISTEMA
+# ADAPTAR COLUMNAS DEL EXCEL
 # --------------------------------------------------
 def adaptar_columnas_excel(df_original):
     equivalencias = {
@@ -148,15 +148,12 @@ def limpiar_numero(valor, unidad):
 
     if unidad in ["KG", "M"]:
         try:
-            # 5,000 -> 5.000
             if "," in texto and "." not in texto:
                 return float(texto.replace(",", "."))
 
-            # 5.000
             if "." in texto and "," not in texto:
                 return float(texto)
 
-            # 1.234,500 -> 1234.500
             if "," in texto and "." in texto:
                 texto = texto.replace(".", "").replace(",", ".")
                 return float(texto)
@@ -206,6 +203,20 @@ def limpiar_filas(df):
         df = df[df[col].str.lower() != "nan"]
 
     return df
+
+
+# --------------------------------------------------
+# AGRUPAR SIN MEZCLAR PROYECTOS
+# --------------------------------------------------
+def agrupar_materiales(df):
+    return df.groupby(
+        ["Definición proyecto", "Reserva", "Material", "Texto material", "Unidad"],
+        as_index=False
+    ).agg({
+        "Cantidad necesaria": "sum",
+        "Cantidad tomada": "sum",
+        "Ctd.faltante": "sum"
+    })
 
 
 # --------------------------------------------------
@@ -299,7 +310,7 @@ def cargar_excel_inventario(bodega):
     st.markdown("### Columnas usadas por el sistema")
     st.write(columnas_encontradas)
 
-    st.write("Filas Excel:", len(df))
+    st.write("Filas Excel originales:", len(df))
 
     # --------------------------------------------------
     # LIMPIAR FILAS
@@ -332,7 +343,7 @@ def cargar_excel_inventario(bodega):
 
     df["Ctd.faltante"] = df["Ctd.faltante"].apply(abs)
 
-    # Si el faltante viene vacío o 0, calcularlo
+    # Si faltante viene en 0, lo recalcula
     df["Ctd.faltante"] = df.apply(
         lambda r: abs(float(r["Cantidad necesaria"]) - float(r["Cantidad tomada"]))
         if float(r["Ctd.faltante"]) == 0 else float(r["Ctd.faltante"]),
@@ -340,7 +351,7 @@ def cargar_excel_inventario(bodega):
     )
 
     # --------------------------------------------------
-    # ELIMINAR DUPLICADOS EXACTOS DEL EXCEL
+    # QUITAR DUPLICADOS EXACTOS DEL EXCEL
     # --------------------------------------------------
     df = df.drop_duplicates(subset=[
         "Definición proyecto",
@@ -353,7 +364,14 @@ def cargar_excel_inventario(bodega):
         "Ctd.faltante"
     ])
 
-    st.write("Filas a cargar:", len(df))
+    st.write("Filas sin duplicados exactos:", len(df))
+
+    # --------------------------------------------------
+    # AGRUPAR MATERIALES DEL MISMO PROYECTO/RESERVA
+    # --------------------------------------------------
+    df = agrupar_materiales(df)
+
+    st.write("Filas consolidadas para cargar:", len(df))
 
     # --------------------------------------------------
     # VISTA PREVIA
@@ -375,7 +393,11 @@ def cargar_excel_inventario(bodega):
         axis=1
     )
 
-    st.markdown("### Vista previa")
+    vista = vista.rename(columns={
+        "Unidad": "Unidad medida entrada"
+    })
+
+    st.markdown("### Vista previa consolidada")
     st.dataframe(vista, use_container_width=True, hide_index=True)
 
     # --------------------------------------------------
@@ -415,7 +437,7 @@ def cargar_excel_inventario(bodega):
                     """, (proyecto, reserva, bodega))
                     trabajos_creados += 1
 
-                # Evitar duplicado exacto
+                # Evitar duplicado exacto en BD
                 c.execute("""
                     SELECT id
                     FROM inventario
@@ -444,7 +466,6 @@ def cargar_excel_inventario(bodega):
                     filas_omitidas += 1
                     continue
 
-                # Insertar
                 c.execute("""
                     INSERT INTO inventario (
                         proyecto,
