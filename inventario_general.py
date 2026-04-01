@@ -36,6 +36,65 @@ def calcular_estado_stock(total):
 
 
 # --------------------------------------------------
+# ESTILO DETALLE SAP
+# --------------------------------------------------
+def estilo_cantidades_detalle(row):
+    estilos = []
+
+    try:
+        necesaria = float(str(row["Cantidad necesaria"]).replace(",", "."))
+        tomada = float(str(row["Cantidad tomada"]).replace(",", "."))
+        faltante = float(str(row["Ctd.faltante"]).replace(",", "."))
+    except:
+        return [""] * len(row)
+
+    for col in row.index:
+        if col == "Cantidad necesaria":
+            estilos.append("color:#4FC3F7; font-weight:bold")
+        elif col == "Cantidad tomada":
+            if tomada >= necesaria:
+                estilos.append("color:#00E676; font-weight:bold")
+            elif tomada > 0:
+                estilos.append("color:#FFD54F; font-weight:bold")
+            else:
+                estilos.append("color:#FF5252; font-weight:bold")
+        elif col == "Ctd.faltante":
+            if faltante > 0:
+                estilos.append("color:#FF5252; font-weight:bold")
+            else:
+                estilos.append("color:#00E676; font-weight:bold")
+        else:
+            estilos.append("")
+
+    return estilos
+
+
+# --------------------------------------------------
+# ESTILO RESUMEN CONSOLIDADO
+# --------------------------------------------------
+def estilo_resumen(row):
+    estilos = []
+
+    try:
+        total = float(str(row["Total"]).replace(",", "."))
+    except:
+        total = 0
+
+    for col in row.index:
+        if col == "Total":
+            if total <= 5:
+                estilos.append("color:#FF5252; font-weight:bold")
+            elif total <= 10:
+                estilos.append("color:#FFD54F; font-weight:bold")
+            else:
+                estilos.append("color:#00E676; font-weight:bold")
+        else:
+            estilos.append("")
+
+    return estilos
+
+
+# --------------------------------------------------
 # FUNCION PRINCIPAL
 # --------------------------------------------------
 def inventario_general():
@@ -90,7 +149,9 @@ def inventario_general():
 
     for col in columnas_texto:
         if col in df.columns:
-            df[col] = df[col].astype(str).str.strip()
+            df[col] = df[col].fillna("").astype(str).str.strip()
+            df[col] = df[col].replace("nan", "")
+            df[col] = df[col].replace("None", "")
 
     df["unidad"] = df["unidad"].str.upper()
 
@@ -109,11 +170,15 @@ def inventario_general():
         buscar = st.text_input("Buscar", placeholder="Proyecto, reserva, material...")
 
     with col2:
-        lista_bodegas = ["Todas"] + sorted(df["bodega"].dropna().unique().tolist())
+        lista_bodegas = ["Todas"] + sorted(
+            [b for b in df["bodega"].dropna().unique().tolist() if str(b).strip() != ""]
+        )
         bodega_sel = st.selectbox("Bodega", lista_bodegas)
 
     with col3:
-        proyectos = ["Todos"] + sorted(df["proyecto"].dropna().unique().tolist())
+        proyectos = ["Todos"] + sorted(
+            [p for p in df["proyecto"].dropna().unique().tolist() if str(p).strip() != ""]
+        )
         proyecto_sel = st.selectbox("Proyecto", proyectos)
 
     with col4:
@@ -126,7 +191,9 @@ def inventario_general():
             df_filtrado["material"].str.contains(buscar, case=False, na=False) |
             df_filtrado["texto_material"].str.contains(buscar, case=False, na=False) |
             df_filtrado["reserva"].str.contains(buscar, case=False, na=False) |
-            df_filtrado["proyecto"].str.contains(buscar, case=False, na=False)
+            df_filtrado["proyecto"].str.contains(buscar, case=False, na=False) |
+            df_filtrado["grafo"].str.contains(buscar, case=False, na=False) |
+            df_filtrado["batch"].str.contains(buscar, case=False, na=False)
         ]
 
     if bodega_sel != "Todas":
@@ -200,7 +267,11 @@ def inventario_general():
             "Movement type", "Bodega"
         ]
 
-        st.dataframe(vista[columnas], use_container_width=True, hide_index=True)
+        st.dataframe(
+            vista[columnas].style.apply(estilo_cantidades_detalle, axis=1),
+            use_container_width=True,
+            hide_index=True
+        )
 
     # ==================================================
     # VISTA RESUMEN
@@ -209,32 +280,47 @@ def inventario_general():
 
         tabla = df_filtrado.groupby(
             ["material", "texto_material", "unidad"],
-            as_index=False
-        )["cantidad_tomada"].sum()
+            as_index=False,
+            dropna=False
+        ).agg({
+            "cantidad_tomada": "sum"
+        })
 
         tabla["Estado"] = tabla["cantidad_tomada"].apply(calcular_estado_stock)
 
-        tabla["cantidad_tomada"] = tabla.apply(
+        tabla["Total"] = tabla.apply(
             lambda r: formato_excel(r["cantidad_tomada"], r["unidad"]), axis=1
         )
 
         tabla = tabla.rename(columns={
             "material": "Material",
             "texto_material": "Texto material",
-            "unidad": "Unidad medida entrada",
-            "cantidad_tomada": "Total"
+            "unidad": "Unidad medida entrada"
         })
 
-        st.dataframe(tabla, use_container_width=True, hide_index=True)
+        tabla = tabla[
+            ["Material", "Texto material", "Unidad medida entrada", "Total", "Estado"]
+        ]
+
+        st.dataframe(
+            tabla.style.apply(estilo_resumen, axis=1),
+            use_container_width=True,
+            hide_index=True
+        )
+
+    st.divider()
 
     # --------------------------------------------------
     # GRAFICO
     # --------------------------------------------------
-    resumen = df_filtrado.groupby("bodega")["cantidad_tomada"].sum().reset_index()
+    resumen = df_filtrado.groupby("bodega", as_index=False)["cantidad_tomada"].sum()
 
     if not resumen.empty:
         st.markdown("### Gráfico por bodega")
 
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=(6, 3.5))
         ax.bar(resumen["bodega"], resumen["cantidad_tomada"])
+        ax.set_title("Cantidad tomada por bodega")
+        ax.set_ylabel("Total")
+        ax.set_xlabel("Bodega")
         st.pyplot(fig)
