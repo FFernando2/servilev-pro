@@ -83,23 +83,31 @@ def estilo_cantidades(row):
         return [""] * len(row)
 
     for col in row.index:
+
         if col == "Cantidad necesaria":
-            estilos.append("color:#4FC3F7; font-weight:bold")
+            estilos.append("background-color: rgba(79, 195, 247, 0.12); font-weight: 600;")
 
         elif col == "Cantidad tomada":
             if tomada >= necesaria or abs(tomada - necesaria) < 0.0001:
-                estilos.append("color:#00E676; font-weight:bold")
+                estilos.append("background-color: rgba(0, 230, 118, 0.14); font-weight: 700;")
             elif tomada > 0:
-                estilos.append("color:#FFD54F; font-weight:bold")
+                estilos.append("background-color: rgba(255, 213, 79, 0.18); font-weight: 700;")
             else:
-                estilos.append("color:#FF5252; font-weight:bold")
+                estilos.append("background-color: rgba(255, 82, 82, 0.16); font-weight: 700;")
 
         elif col == "Ctd.faltante":
             if faltante > 0:
-                estilos.append("color:#FF5252; font-weight:bold")
+                estilos.append("background-color: rgba(255, 82, 82, 0.16); font-weight: 700;")
             else:
-                estilos.append("color:#00E676; font-weight:bold")
+                estilos.append("background-color: rgba(0, 230, 118, 0.14); font-weight: 700;")
 
+        elif col == "Estado":
+            if "Completo" in str(row["Estado"]):
+                estilos.append("background-color: rgba(0, 230, 118, 0.14); font-weight: 600;")
+            elif "Pendiente" in str(row["Estado"]):
+                estilos.append("background-color: rgba(255, 213, 79, 0.18); font-weight: 600;")
+            else:
+                estilos.append("background-color: rgba(255, 82, 82, 0.16); font-weight: 600;")
         else:
             estilos.append("")
 
@@ -311,9 +319,9 @@ def inventario(bodega):
     vista = df.copy()
 
     vista["estado"] = vista["estado"].map({
-        "Sin stock": "🔴 Sin stock",
-        "Pendiente": "🟡 Pendiente",
-        "Completo": "🟢 Completo"
+        "Sin stock": "Sin stock",
+        "Pendiente": "Pendiente",
+        "Completo": "Completo"
     })
 
     vista["cantidad_necesaria"] = vista.apply(
@@ -361,21 +369,13 @@ def inventario(bodega):
     vista = vista[
         [
             "Definición proyecto",
-            "Grafo",
             "Reserva",
-            "Posición",
-            "Operación",
             "Material",
             "Texto material",
-            "Batch",
             "Cantidad necesaria",
             "Cantidad tomada",
             "Ctd.faltante",
             "Unidad medida entrada",
-            "Price/LCurrency",
-            "Storage location",
-            "Existe pedido",
-            "Movement type",
             "Avance",
             "Estado"
         ]
@@ -384,39 +384,18 @@ def inventario(bodega):
     # --------------------------------------------------
     # LEYENDA
     # --------------------------------------------------
-    st.markdown("### 🧾 Estado del sistema")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown("🔴 **Sin stock / Crítico**")
-
-    with col2:
-        st.markdown("🟡 **Pendiente / Parcial**")
-
-    with col3:
-        st.markdown("🟢 **Completo**")
-
-    st.markdown("""
-- 🔵 **Cantidad necesaria** → Cantidad requerida del material  
-- 🟢 **Cantidad tomada** → Material completo o suficiente  
-- 🟡 **Cantidad tomada** → Parcial, aún falta material  
-- 🔴 **Cantidad tomada** → Sin stock o sin avance  
-
-- 🔴 **Ctd.faltante** → Material pendiente por completar  
-- 🟢 **Ctd.faltante** → Completo  
-
-- **Avance** → progreso del material respecto a lo necesario  
-""")
+    st.caption(
+        "Azul: necesaria | Verde: completo | Amarillo: parcial | Rojo: faltante o sin stock"
+    )
 
     # --------------------------------------------------
     # TABLA INVENTARIO
     # --------------------------------------------------
-    st.markdown("### Detalle de inventario")
+    st.markdown("### Inventario")
     st.dataframe(
         vista.style
             .apply(estilo_cantidades, axis=1)
-            .bar(subset=["Avance"], color="#00E676"),
+            .format({"Avance": "{:.0%}"}),
         use_container_width=True,
         hide_index=True
     )
