@@ -281,7 +281,9 @@ def limpiar_filas(df):
 
     for col in columnas_texto:
         if col in df.columns:
-            df[col] = df[col].astype(str).str.strip()
+            df[col] = df[col].fillna("").astype(str).str.strip()
+            df[col] = df[col].replace("nan", "")
+            df[col] = df[col].replace("None", "")
 
     df = df.dropna(how="all")
 
@@ -297,23 +299,34 @@ def limpiar_filas(df):
 # AGRUPAR MATERIALES
 # --------------------------------------------------
 def agrupar_materiales(df):
+    df = df.copy()
+
+    columnas_grupo = [
+        "Definición proyecto",
+        "Grafo",
+        "Reserva",
+        "Posición",
+        "Operación",
+        "Material",
+        "Texto material",
+        "Batch",
+        "Unidad medida entrada",
+        "Price/LCurrency",
+        "Storage location",
+        "Existe pedido",
+        "Movement type"
+    ]
+
+    for col in columnas_grupo:
+        if col in df.columns:
+            df[col] = df[col].fillna("").astype(str).str.strip()
+            df[col] = df[col].replace("nan", "")
+            df[col] = df[col].replace("None", "")
+
     return df.groupby(
-        [
-            "Definición proyecto",
-            "Grafo",
-            "Reserva",
-            "Posición",
-            "Operación",
-            "Material",
-            "Texto material",
-            "Batch",
-            "Unidad medida entrada",
-            "Price/LCurrency",
-            "Storage location",
-            "Existe pedido",
-            "Movement type"
-        ],
-        as_index=False
+        columnas_grupo,
+        as_index=False,
+        dropna=False
     ).agg({
         "Cantidad necesaria": "sum",
         "Cantidad tomada": "sum",
@@ -482,11 +495,24 @@ def cargar_excel_inventario(bodega):
     st.write("Filas sin duplicados exactos:", len(df))
 
     # --------------------------------------------------
+    # DEBUG ANTES DE AGRUPAR
+    # --------------------------------------------------
+    st.write("Primeras filas antes de agrupar:")
+    st.dataframe(df.head(), use_container_width=True, hide_index=True)
+
+    # --------------------------------------------------
     # AGRUPAR MATERIALES
     # --------------------------------------------------
     df = agrupar_materiales(df)
 
     st.write("Filas consolidadas para cargar:", len(df))
+
+    st.write("Primeras filas después de agrupar:")
+    st.dataframe(df.head(), use_container_width=True, hide_index=True)
+
+    if df.empty:
+        st.warning("Después de agrupar no quedaron filas para cargar")
+        return
 
     # --------------------------------------------------
     # VISTA PREVIA
