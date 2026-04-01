@@ -50,13 +50,21 @@ def inventario(bodega):
         df = pd.read_sql_query("""
             SELECT 
                 proyecto,
+                grafo,
                 reserva,
+                posicion,
+                operacion,
                 material,
                 texto_material,
-                unidad,
+                batch,
                 cantidad_necesaria,
                 cantidad_tomada,
-                ctd_faltante
+                ctd_faltante,
+                unidad,
+                price_lcurrency,
+                storage_location,
+                existe_pedido,
+                movement_type
             FROM inventario
             WHERE bodega = %s
             ORDER BY proyecto, reserva, material
@@ -75,10 +83,26 @@ def inventario(bodega):
     # --------------------------------------------------
     # LIMPIAR DATOS
     # --------------------------------------------------
-    df["proyecto"] = df["proyecto"].astype(str).str.strip()
-    df["reserva"] = df["reserva"].astype(str).str.strip()
-    df["material"] = df["material"].astype(str).str.strip()
-    df["texto_material"] = df["texto_material"].astype(str).str.strip()
+    columnas_texto = [
+        "proyecto",
+        "grafo",
+        "reserva",
+        "posicion",
+        "operacion",
+        "material",
+        "texto_material",
+        "batch",
+        "unidad",
+        "price_lcurrency",
+        "storage_location",
+        "existe_pedido",
+        "movement_type"
+    ]
+
+    for col in columnas_texto:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
+
     df["unidad"] = df["unidad"].astype(str).str.strip().str.upper()
 
     df["cantidad_necesaria"] = pd.to_numeric(
@@ -152,7 +176,9 @@ def inventario(bodega):
             df["proyecto"].str.contains(buscar, case=False, na=False) |
             df["reserva"].str.contains(buscar, case=False, na=False) |
             df["material"].str.contains(buscar, case=False, na=False) |
-            df["texto_material"].str.contains(buscar, case=False, na=False)
+            df["texto_material"].str.contains(buscar, case=False, na=False) |
+            df["grafo"].str.contains(buscar, case=False, na=False) |
+            df["batch"].str.contains(buscar, case=False, na=False)
         ]
 
     if proyecto_sel != "Todos":
@@ -207,13 +233,21 @@ def inventario(bodega):
     # --------------------------------------------------
     vista = vista.rename(columns={
         "proyecto": "Definición proyecto",
+        "grafo": "Grafo",
         "reserva": "Reserva",
+        "posicion": "Posición",
+        "operacion": "Operación",
         "material": "Material",
         "texto_material": "Texto material",
-        "unidad": "Unidad medida entrada",
+        "batch": "Batch",
         "cantidad_necesaria": "Cantidad necesaria",
         "cantidad_tomada": "Cantidad tomada",
         "ctd_faltante": "Ctd.faltante",
+        "unidad": "Unidad medida entrada",
+        "price_lcurrency": "Price/LCurrency",
+        "storage_location": "Storage location",
+        "existe_pedido": "Existe pedido",
+        "movement_type": "Movement type",
         "estado": "Estado"
     })
 
@@ -223,13 +257,21 @@ def inventario(bodega):
     vista = vista[
         [
             "Definición proyecto",
+            "Grafo",
             "Reserva",
+            "Posición",
+            "Operación",
             "Material",
             "Texto material",
-            "Unidad medida entrada",
+            "Batch",
             "Cantidad necesaria",
             "Cantidad tomada",
             "Ctd.faltante",
+            "Unidad medida entrada",
+            "Price/LCurrency",
+            "Storage location",
+            "Existe pedido",
+            "Movement type",
             "Estado"
         ]
     ]
