@@ -19,17 +19,35 @@ def formato_excel(valor, unidad):
 
 
 # --------------------------------------------------
+# CALCULAR FALTANTE REAL
+# --------------------------------------------------
+def calcular_faltante_real(necesaria, tomada):
+    try:
+        necesaria = float(necesaria)
+        tomada = float(tomada)
+        faltante = necesaria - tomada
+
+        # tolerancia para evitar problemas visuales por decimales
+        if abs(faltante) < 0.0001:
+            return 0.0
+
+        return abs(faltante)
+    except:
+        return 0.0
+
+
+# --------------------------------------------------
 # CALCULAR ESTADO DEL MATERIAL
 # --------------------------------------------------
 def calcular_estado(row):
     try:
         necesaria = float(row["cantidad_necesaria"])
         tomada = float(row["cantidad_tomada"])
-        faltante = float(row["ctd_faltante"])
+        faltante = float(row["ctd_faltante_calc"])
 
         if tomada <= 0:
             return "Sin stock"
-        elif faltante > 0 or tomada < necesaria:
+        elif faltante > 0:
             return "Pendiente"
         else:
             return "Completo"
@@ -56,7 +74,7 @@ def estilo_cantidades(row):
             estilos.append("color:#4FC3F7; font-weight:bold")
 
         elif col == "Cantidad tomada":
-            if tomada >= necesaria:
+            if tomada >= necesaria or abs(tomada - necesaria) < 0.0001:
                 estilos.append("color:#00E676; font-weight:bold")
             elif tomada > 0:
                 estilos.append("color:#FFD54F; font-weight:bold")
@@ -158,6 +176,14 @@ def inventario(bodega):
     ).fillna(0).abs()
 
     # --------------------------------------------------
+    # RECALCULAR FALTANTE REAL
+    # --------------------------------------------------
+    df["ctd_faltante_calc"] = df.apply(
+        lambda r: calcular_faltante_real(r["cantidad_necesaria"], r["cantidad_tomada"]),
+        axis=1
+    )
+
+    # --------------------------------------------------
     # ESTADO
     # --------------------------------------------------
     df["estado"] = df.apply(calcular_estado, axis=1)
@@ -169,7 +195,7 @@ def inventario(bodega):
     materiales_unicos = df["material"].nunique()
     proyectos_activos = df["proyecto"].nunique()
     reservas_activas = df["reserva"].nunique()
-    faltantes = (df["ctd_faltante"] > 0).sum()
+    faltantes = (df["ctd_faltante_calc"] > 0).sum()
 
     col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -263,8 +289,9 @@ def inventario(bodega):
         axis=1
     )
 
-    vista["ctd_faltante"] = vista.apply(
-        lambda r: formato_excel(r["ctd_faltante"], r["unidad"]),
+    # usar el faltante recalculado
+    vista["ctd_faltante_calc"] = vista.apply(
+        lambda r: formato_excel(r["ctd_faltante_calc"], r["unidad"]),
         axis=1
     )
 
@@ -282,7 +309,7 @@ def inventario(bodega):
         "batch": "Batch",
         "cantidad_necesaria": "Cantidad necesaria",
         "cantidad_tomada": "Cantidad tomada",
-        "ctd_faltante": "Ctd.faltante",
+        "ctd_faltante_calc": "Ctd.faltante",
         "unidad": "Unidad medida entrada",
         "price_lcurrency": "Price/LCurrency",
         "storage_location": "Storage location",
