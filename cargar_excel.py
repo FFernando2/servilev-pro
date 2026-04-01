@@ -495,20 +495,11 @@ def cargar_excel_inventario(bodega):
     st.write("Filas sin duplicados exactos:", len(df))
 
     # --------------------------------------------------
-    # DEBUG ANTES DE AGRUPAR
-    # --------------------------------------------------
-    st.write("Primeras filas antes de agrupar:")
-    st.dataframe(df.head(), use_container_width=True, hide_index=True)
-
-    # --------------------------------------------------
     # AGRUPAR MATERIALES
     # --------------------------------------------------
     df = agrupar_materiales(df)
 
     st.write("Filas consolidadas para cargar:", len(df))
-
-    st.write("Primeras filas después de agrupar:")
-    st.dataframe(df.head(), use_container_width=True, hide_index=True)
 
     if df.empty:
         st.warning("Después de agrupar no quedaron filas para cargar")
@@ -541,9 +532,6 @@ def cargar_excel_inventario(bodega):
     # CARGAR A BASE DE DATOS
     # --------------------------------------------------
     if st.button("Cargar inventario", use_container_width=True):
-        st.write("Botón presionado ✅")
-        st.write("Filas del DataFrame antes de guardar:", len(df))
-
         conn = conectar()
         c = conn.cursor()
 
@@ -569,8 +557,6 @@ def cargar_excel_inventario(bodega):
                 cant_nec = float(row["Cantidad necesaria"])
                 cant_tom = float(row["Cantidad tomada"])
                 faltante = float(row["Ctd.faltante"])
-
-                st.write(f"Insertando material: {material} | Reserva: {reserva}")
 
                 c.execute("""
                     SELECT id
@@ -633,10 +619,6 @@ def cargar_excel_inventario(bodega):
             st.success("Excel cargado correctamente")
             st.write("Trabajos creados:", trabajos_creados)
             st.write("Filas insertadas:", filas_insertadas)
-
-            c.execute("SELECT COUNT(*) FROM inventario WHERE bodega = %s", (bodega,))
-            total_bodega = c.fetchone()[0]
-            st.write("Total de filas en inventario para esta bodega:", total_bodega)
 
             st.rerun()
 
