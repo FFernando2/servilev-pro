@@ -24,6 +24,30 @@ def crear_tabla_trabajos():
 
 
 # --------------------------------------------------
+# ASEGURAR COLUMNAS NUEVAS EN INVENTARIO
+# --------------------------------------------------
+def asegurar_columnas_inventario():
+    conn = conectar()
+    c = conn.cursor()
+
+    try:
+        c.execute("ALTER TABLE inventario ADD COLUMN IF NOT EXISTS grafo TEXT")
+        c.execute("ALTER TABLE inventario ADD COLUMN IF NOT EXISTS posicion TEXT")
+        c.execute("ALTER TABLE inventario ADD COLUMN IF NOT EXISTS operacion TEXT")
+        c.execute("ALTER TABLE inventario ADD COLUMN IF NOT EXISTS batch TEXT")
+        c.execute("ALTER TABLE inventario ADD COLUMN IF NOT EXISTS price_lcurrency TEXT")
+        c.execute("ALTER TABLE inventario ADD COLUMN IF NOT EXISTS storage_location TEXT")
+        c.execute("ALTER TABLE inventario ADD COLUMN IF NOT EXISTS existe_pedido TEXT")
+        c.execute("ALTER TABLE inventario ADD COLUMN IF NOT EXISTS movement_type TEXT")
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        st.error(f"Error al actualizar columnas de inventario: {e}")
+    finally:
+        conn.close()
+
+
+# --------------------------------------------------
 # NORMALIZAR TEXTO
 # --------------------------------------------------
 def normalizar_texto(texto):
@@ -51,59 +75,89 @@ def adaptar_columnas_excel(df_original):
     equivalencias = {
         "Definición proyecto": [
             "Definición proyecto",
+            "Definición proye",
             "Definición pr",
-            "Proyecto",
-            "Proyecto SAP"
+            "Proyecto"
+        ],
+        "Grafo": [
+            "Grafo"
         ],
         "Reserva": [
             "Reserva",
-            "Reserva ",
-            "Número reserva",
-            "Numero reserva",
-            "N° Reserva"
+            "Reser"
+        ],
+        "Posición": [
+            "Posición",
+            "Posicion"
+        ],
+        "Operación": [
+            "Operación",
+            "Operacion"
         ],
         "Material": [
             "Material",
-            "Código",
-            "Codigo"
+            "Mater"
         ],
         "Texto material": [
-            "Texto material",
-            "Texto material ",
-            "Descripción",
-            "Descripcion"
+            "Texto material"
         ],
-        "Unidad": [
-            "Unidad",
-            "Unidad ",
-            "Unidad medida entrada"
+        "Batch": [
+            "Batch"
         ],
         "Cantidad necesaria": [
             "Cantidad necesaria",
-            "Cantidad requerida",
-            "Cantidad nec"
+            "Cantidad necesa"
         ],
         "Cantidad tomada": [
             "Cantidad tomada",
-            "Cantidad tomada ",
-            "Cantidad retirada",
-            "Tomado"
+            "Cantidad toma"
         ],
         "Ctd.faltante": [
             "Ctd.faltante",
-            "Ctd.faltante ",
-            "Cantidad faltante",
-            "Faltante"
+            "Ctd.falta"
+        ],
+        "Unidad medida entrada": [
+            "Unidad medida entrada",
+            "Unidad medida entra"
+        ],
+        "Price/LCurrency": [
+            "Price/LCurrency",
+            "Price/LCurre"
+        ],
+        "Storage location": [
+            "Storage location",
+            "Storage locati"
+        ],
+        "Existe pedido": [
+            "Existe pedido",
+            "Existe pedi"
+        ],
+        "Movement type": [
+            "Movement type",
+            "Movement ty"
         ]
     }
 
-    columnas_obligatorias = [
+    obligatorias = [
         "Definición proyecto",
         "Reserva",
         "Material",
         "Texto material",
-        "Unidad",
+        "Unidad medida entrada",
         "Cantidad necesaria"
+    ]
+
+    opcionales_con_default = [
+        "Grafo",
+        "Posición",
+        "Operación",
+        "Batch",
+        "Cantidad tomada",
+        "Ctd.faltante",
+        "Price/LCurrency",
+        "Storage location",
+        "Existe pedido",
+        "Movement type"
     ]
 
     df_nuevo = pd.DataFrame()
@@ -117,9 +171,11 @@ def adaptar_columnas_excel(df_original):
             df_nuevo[columna_destino] = df_original[columna_real]
             columnas_encontradas[columna_destino] = columna_real
         else:
-            if columna_destino in ["Cantidad tomada", "Ctd.faltante"]:
-                df_nuevo[columna_destino] = 0
-            elif columna_destino in columnas_obligatorias:
+            if columna_destino in opcionales_con_default:
+                df_nuevo[columna_destino] = ""
+                if columna_destino in ["Cantidad tomada", "Ctd.faltante"]:
+                    df_nuevo[columna_destino] = 0
+            elif columna_destino in obligatorias:
                 faltantes.append(columna_destino)
 
     return df_nuevo, columnas_encontradas, faltantes
@@ -189,11 +245,15 @@ def formato_excel(valor, unidad):
 def limpiar_filas(df):
     df = df.copy()
 
-    df["Definición proyecto"] = df["Definición proyecto"].astype(str).str.strip()
-    df["Reserva"] = df["Reserva"].astype(str).str.strip()
-    df["Material"] = df["Material"].astype(str).str.strip()
-    df["Texto material"] = df["Texto material"].astype(str).str.strip()
-    df["Unidad"] = df["Unidad"].astype(str).str.strip().str.upper()
+    columnas_texto = [
+        "Definición proyecto", "Grafo", "Reserva", "Posición", "Operación",
+        "Material", "Texto material", "Batch", "Unidad medida entrada",
+        "Price/LCurrency", "Storage location", "Existe pedido", "Movement type"
+    ]
+
+    for col in columnas_texto:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
 
     df = df.dropna(how="all")
 
@@ -206,11 +266,25 @@ def limpiar_filas(df):
 
 
 # --------------------------------------------------
-# AGRUPAR SIN MEZCLAR PROYECTOS
+# AGRUPAR MATERIALES
 # --------------------------------------------------
 def agrupar_materiales(df):
     return df.groupby(
-        ["Definición proyecto", "Reserva", "Material", "Texto material", "Unidad"],
+        [
+            "Definición proyecto",
+            "Grafo",
+            "Reserva",
+            "Posición",
+            "Operación",
+            "Material",
+            "Texto material",
+            "Batch",
+            "Unidad medida entrada",
+            "Price/LCurrency",
+            "Storage location",
+            "Existe pedido",
+            "Movement type"
+        ],
         as_index=False
     ).agg({
         "Cantidad necesaria": "sum",
@@ -226,10 +300,8 @@ def cargar_excel_inventario(bodega):
     st.subheader(f"Cargar Excel Inventario - Bodega {bodega}")
 
     crear_tabla_trabajos()
+    asegurar_columnas_inventario()
 
-    # --------------------------------------------------
-    # BORRAR INVENTARIO
-    # --------------------------------------------------
     st.divider()
     st.subheader("Eliminar inventario")
 
@@ -270,9 +342,6 @@ def cargar_excel_inventario(bodega):
 
     st.divider()
 
-    # --------------------------------------------------
-    # SUBIR ARCHIVO
-    # --------------------------------------------------
     archivo = st.file_uploader("Seleccionar archivo Excel", type=["xlsx"])
 
     if archivo is None:
@@ -298,9 +367,6 @@ def cargar_excel_inventario(bodega):
     st.markdown("### Columnas detectadas en el Excel")
     st.write(list(df_original.columns))
 
-    # --------------------------------------------------
-    # ADAPTAR COLUMNAS
-    # --------------------------------------------------
     df, columnas_encontradas, faltantes = adaptar_columnas_excel(df_original)
 
     if faltantes:
@@ -312,9 +378,6 @@ def cargar_excel_inventario(bodega):
 
     st.write("Filas Excel originales:", len(df))
 
-    # --------------------------------------------------
-    # LIMPIAR FILAS
-    # --------------------------------------------------
     df = limpiar_filas(df)
 
     st.write("Filas válidas:", len(df))
@@ -323,86 +386,59 @@ def cargar_excel_inventario(bodega):
         st.warning("No hay filas válidas para cargar")
         return
 
-    # --------------------------------------------------
-    # LIMPIAR NÚMEROS
-    # --------------------------------------------------
+    df["Unidad medida entrada"] = df["Unidad medida entrada"].astype(str).str.strip().str.upper()
+
     df["Cantidad necesaria"] = df.apply(
-        lambda r: limpiar_numero(r["Cantidad necesaria"], r["Unidad"]),
+        lambda r: limpiar_numero(r["Cantidad necesaria"], r["Unidad medida entrada"]),
         axis=1
     )
 
     df["Cantidad tomada"] = df.apply(
-        lambda r: limpiar_numero(r["Cantidad tomada"], r["Unidad"]),
+        lambda r: limpiar_numero(r["Cantidad tomada"], r["Unidad medida entrada"]),
         axis=1
     )
 
     df["Ctd.faltante"] = df.apply(
-        lambda r: limpiar_numero(r["Ctd.faltante"], r["Unidad"]),
+        lambda r: limpiar_numero(r["Ctd.faltante"], r["Unidad medida entrada"]),
         axis=1
     )
 
     df["Ctd.faltante"] = df["Ctd.faltante"].apply(abs)
 
-    # Si faltante viene en 0, lo recalcula
     df["Ctd.faltante"] = df.apply(
         lambda r: abs(float(r["Cantidad necesaria"]) - float(r["Cantidad tomada"]))
         if float(r["Ctd.faltante"]) == 0 else float(r["Ctd.faltante"]),
         axis=1
     )
 
-    # --------------------------------------------------
-    # QUITAR DUPLICADOS EXACTOS DEL EXCEL
-    # --------------------------------------------------
-    df = df.drop_duplicates(subset=[
-        "Definición proyecto",
-        "Reserva",
-        "Material",
-        "Texto material",
-        "Unidad",
-        "Cantidad necesaria",
-        "Cantidad tomada",
-        "Ctd.faltante"
-    ])
+    df = df.drop_duplicates()
 
     st.write("Filas sin duplicados exactos:", len(df))
 
-    # --------------------------------------------------
-    # AGRUPAR MATERIALES DEL MISMO PROYECTO/RESERVA
-    # --------------------------------------------------
     df = agrupar_materiales(df)
 
     st.write("Filas consolidadas para cargar:", len(df))
 
-    # --------------------------------------------------
-    # VISTA PREVIA
-    # --------------------------------------------------
     vista = df.copy()
 
     vista["Cantidad necesaria"] = vista.apply(
-        lambda r: formato_excel(r["Cantidad necesaria"], r["Unidad"]),
+        lambda r: formato_excel(r["Cantidad necesaria"], r["Unidad medida entrada"]),
         axis=1
     )
 
     vista["Cantidad tomada"] = vista.apply(
-        lambda r: formato_excel(r["Cantidad tomada"], r["Unidad"]),
+        lambda r: formato_excel(r["Cantidad tomada"], r["Unidad medida entrada"]),
         axis=1
     )
 
     vista["Ctd.faltante"] = vista.apply(
-        lambda r: formato_excel(r["Ctd.faltante"], r["Unidad"]),
+        lambda r: formato_excel(r["Ctd.faltante"], r["Unidad medida entrada"]),
         axis=1
     )
-
-    vista = vista.rename(columns={
-        "Unidad": "Unidad medida entrada"
-    })
 
     st.markdown("### Vista previa consolidada")
     st.dataframe(vista, use_container_width=True, hide_index=True)
 
-    # --------------------------------------------------
-    # CARGAR A BASE DE DATOS
-    # --------------------------------------------------
     if st.button("Cargar inventario", use_container_width=True):
         conn = conectar()
         c = conn.cursor()
@@ -414,16 +450,23 @@ def cargar_excel_inventario(bodega):
         try:
             for _, row in df.iterrows():
                 proyecto = str(row["Definición proyecto"]).strip()
+                grafo = str(row["Grafo"]).strip()
                 reserva = str(row["Reserva"]).strip()
+                posicion = str(row["Posición"]).strip()
+                operacion = str(row["Operación"]).strip()
                 material = str(row["Material"]).strip()
                 texto_material = str(row["Texto material"]).strip()
-                unidad = str(row["Unidad"]).strip().upper()
+                batch = str(row["Batch"]).strip()
+                unidad = str(row["Unidad medida entrada"]).strip().upper()
+                price_lcurrency = str(row["Price/LCurrency"]).strip()
+                storage_location = str(row["Storage location"]).strip()
+                existe_pedido = str(row["Existe pedido"]).strip()
+                movement_type = str(row["Movement type"]).strip()
 
                 cant_nec = float(row["Cantidad necesaria"])
                 cant_tom = float(row["Cantidad tomada"])
                 faltante = float(row["Ctd.faltante"])
 
-                # Crear trabajo si no existe
                 c.execute("""
                     SELECT id
                     FROM trabajos
@@ -437,28 +480,43 @@ def cargar_excel_inventario(bodega):
                     """, (proyecto, reserva, bodega))
                     trabajos_creados += 1
 
-                # Evitar duplicado exacto en BD
                 c.execute("""
                     SELECT id
                     FROM inventario
                     WHERE proyecto = %s
+                      AND COALESCE(grafo, '') = %s
                       AND reserva = %s
+                      AND COALESCE(posicion, '') = %s
+                      AND COALESCE(operacion, '') = %s
                       AND material = %s
                       AND texto_material = %s
+                      AND COALESCE(batch, '') = %s
                       AND unidad = %s
                       AND cantidad_necesaria = %s
                       AND cantidad_tomada = %s
                       AND ctd_faltante = %s
+                      AND COALESCE(price_lcurrency, '') = %s
+                      AND COALESCE(storage_location, '') = %s
+                      AND COALESCE(existe_pedido, '') = %s
+                      AND COALESCE(movement_type, '') = %s
                       AND bodega = %s
                 """, (
                     proyecto,
+                    grafo,
                     reserva,
+                    posicion,
+                    operacion,
                     material,
                     texto_material,
+                    batch,
                     unidad,
                     cant_nec,
                     cant_tom,
                     faltante,
+                    price_lcurrency,
+                    storage_location,
+                    existe_pedido,
+                    movement_type,
                     bodega
                 ))
 
@@ -469,25 +527,41 @@ def cargar_excel_inventario(bodega):
                 c.execute("""
                     INSERT INTO inventario (
                         proyecto,
+                        grafo,
                         reserva,
+                        posicion,
+                        operacion,
                         material,
                         texto_material,
+                        batch,
                         unidad,
                         cantidad_necesaria,
                         cantidad_tomada,
                         ctd_faltante,
+                        price_lcurrency,
+                        storage_location,
+                        existe_pedido,
+                        movement_type,
                         bodega
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     proyecto,
+                    grafo,
                     reserva,
+                    posicion,
+                    operacion,
                     material,
                     texto_material,
+                    batch,
                     unidad,
                     cant_nec,
                     cant_tom,
                     faltante,
+                    price_lcurrency,
+                    storage_location,
+                    existe_pedido,
+                    movement_type,
                     bodega
                 ))
 
