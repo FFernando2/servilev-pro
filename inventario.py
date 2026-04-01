@@ -27,7 +27,6 @@ def calcular_faltante_real(necesaria, tomada):
         tomada = float(tomada)
         faltante = necesaria - tomada
 
-        # tolerancia para evitar problemas visuales por decimales
         if abs(faltante) < 0.0001:
             return 0.0
 
@@ -41,7 +40,6 @@ def calcular_faltante_real(necesaria, tomada):
 # --------------------------------------------------
 def calcular_estado(row):
     try:
-        necesaria = float(row["cantidad_necesaria"])
         tomada = float(row["cantidad_tomada"])
         faltante = float(row["ctd_faltante_calc"])
 
@@ -53,6 +51,22 @@ def calcular_estado(row):
             return "Completo"
     except:
         return "Pendiente"
+
+
+# --------------------------------------------------
+# CALCULAR AVANCE
+# --------------------------------------------------
+def barra_progreso(row):
+    try:
+        necesaria = float(row["cantidad_necesaria"])
+        tomada = float(row["cantidad_tomada"])
+
+        if necesaria <= 0:
+            return 0.0
+
+        return min(tomada / necesaria, 1.0)
+    except:
+        return 0.0
 
 
 # --------------------------------------------------
@@ -69,7 +83,6 @@ def estilo_cantidades(row):
         return [""] * len(row)
 
     for col in row.index:
-
         if col == "Cantidad necesaria":
             estilos.append("color:#4FC3F7; font-weight:bold")
 
@@ -184,9 +197,10 @@ def inventario(bodega):
     )
 
     # --------------------------------------------------
-    # ESTADO
+    # ESTADO Y AVANCE
     # --------------------------------------------------
     df["estado"] = df.apply(calcular_estado, axis=1)
+    df["avance"] = df.apply(barra_progreso, axis=1)
 
     # --------------------------------------------------
     # PANEL DE CONTROL
@@ -204,6 +218,29 @@ def inventario(bodega):
     col3.metric("Proyectos", int(proyectos_activos))
     col4.metric("Reservas", int(reservas_activas))
     col5.metric("Con faltante", int(faltantes))
+
+    st.divider()
+
+    # --------------------------------------------------
+    # KPI AVANCE GENERAL
+    # --------------------------------------------------
+    total_necesaria = df["cantidad_necesaria"].sum()
+    total_tomada = df["cantidad_tomada"].sum()
+
+    if total_necesaria > 0:
+        porcentaje_avance = (total_tomada / total_necesaria) * 100
+    else:
+        porcentaje_avance = 0
+
+    completos = (df["ctd_faltante_calc"] == 0).sum()
+    pendientes = (df["ctd_faltante_calc"] > 0).sum()
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Avance general", f"{porcentaje_avance:.1f}%")
+    col2.metric("Materiales completos", int(completos))
+    col3.metric("Materiales pendientes", int(pendientes))
+
+    st.progress(min(porcentaje_avance / 100, 1.0))
 
     st.divider()
 
@@ -289,7 +326,6 @@ def inventario(bodega):
         axis=1
     )
 
-    # usar el faltante recalculado
     vista["ctd_faltante_calc"] = vista.apply(
         lambda r: formato_excel(r["ctd_faltante_calc"], r["unidad"]),
         axis=1
@@ -315,6 +351,7 @@ def inventario(bodega):
         "storage_location": "Storage location",
         "existe_pedido": "Existe pedido",
         "movement_type": "Movement type",
+        "avance": "Avance",
         "estado": "Estado"
     })
 
@@ -339,16 +376,47 @@ def inventario(bodega):
             "Storage location",
             "Existe pedido",
             "Movement type",
+            "Avance",
             "Estado"
         ]
     ]
+
+    # --------------------------------------------------
+    # LEYENDA
+    # --------------------------------------------------
+    st.markdown("### 🧾 Estado del sistema")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown("🔴 **Sin stock / Crítico**")
+
+    with col2:
+        st.markdown("🟡 **Pendiente / Parcial**")
+
+    with col3:
+        st.markdown("🟢 **Completo**")
+
+    st.markdown("""
+- 🔵 **Cantidad necesaria** → Cantidad requerida del material  
+- 🟢 **Cantidad tomada** → Material completo o suficiente  
+- 🟡 **Cantidad tomada** → Parcial, aún falta material  
+- 🔴 **Cantidad tomada** → Sin stock o sin avance  
+
+- 🔴 **Ctd.faltante** → Material pendiente por completar  
+- 🟢 **Ctd.faltante** → Completo  
+
+- **Avance** → progreso del material respecto a lo necesario  
+""")
 
     # --------------------------------------------------
     # TABLA INVENTARIO
     # --------------------------------------------------
     st.markdown("### Detalle de inventario")
     st.dataframe(
-        vista.style.apply(estilo_cantidades, axis=1),
+        vista.style
+            .apply(estilo_cantidades, axis=1)
+            .bar(subset=["Avance"], color="#00E676"),
         use_container_width=True,
         hide_index=True
     )
