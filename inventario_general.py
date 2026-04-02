@@ -29,10 +29,10 @@ def calcular_estado_stock(total):
         return "Sin dato"
 
     if total <= 5:
-        return "🔴 Crítico"
+        return "Crítico"
     elif total <= 10:
-        return "🟠 Bajo"
-    return "🟢 Normal"
+        return "Bajo"
+    return "Normal"
 
 
 # --------------------------------------------------
@@ -50,19 +50,29 @@ def estilo_cantidades_detalle(row):
 
     for col in row.index:
         if col == "Cantidad necesaria":
-            estilos.append("color:#4FC3F7; font-weight:bold")
+            estilos.append("background-color: rgba(79, 195, 247, 0.12); font-weight: 600;")
+
         elif col == "Cantidad tomada":
-            if tomada >= necesaria:
-                estilos.append("color:#00E676; font-weight:bold")
+            if tomada >= necesaria or abs(tomada - necesaria) < 0.0001:
+                estilos.append("background-color: rgba(0, 230, 118, 0.14); font-weight: 700;")
             elif tomada > 0:
-                estilos.append("color:#FFD54F; font-weight:bold")
+                estilos.append("background-color: rgba(255, 213, 79, 0.18); font-weight: 700;")
             else:
-                estilos.append("color:#FF5252; font-weight:bold")
+                estilos.append("background-color: rgba(255, 82, 82, 0.16); font-weight: 700;")
+
         elif col == "Ctd.faltante":
             if faltante > 0:
-                estilos.append("color:#FF5252; font-weight:bold")
+                estilos.append("background-color: rgba(255, 82, 82, 0.16); font-weight: 700;")
             else:
-                estilos.append("color:#00E676; font-weight:bold")
+                estilos.append("background-color: rgba(0, 230, 118, 0.14); font-weight: 700;")
+
+        elif col == "Estado":
+            if "Normal" in str(row["Estado"]):
+                estilos.append("background-color: rgba(0, 230, 118, 0.14); font-weight: 600;")
+            elif "Bajo" in str(row["Estado"]):
+                estilos.append("background-color: rgba(255, 213, 79, 0.18); font-weight: 600;")
+            else:
+                estilos.append("background-color: rgba(255, 82, 82, 0.16); font-weight: 600;")
         else:
             estilos.append("")
 
@@ -83,11 +93,18 @@ def estilo_resumen(row):
     for col in row.index:
         if col == "Total":
             if total <= 5:
-                estilos.append("color:#FF5252; font-weight:bold")
+                estilos.append("background-color: rgba(255, 82, 82, 0.16); font-weight: 700;")
             elif total <= 10:
-                estilos.append("color:#FFD54F; font-weight:bold")
+                estilos.append("background-color: rgba(255, 213, 79, 0.18); font-weight: 700;")
             else:
-                estilos.append("color:#00E676; font-weight:bold")
+                estilos.append("background-color: rgba(0, 230, 118, 0.14); font-weight: 700;")
+        elif col == "Estado":
+            if "Normal" in str(row["Estado"]):
+                estilos.append("background-color: rgba(0, 230, 118, 0.14); font-weight: 600;")
+            elif "Bajo" in str(row["Estado"]):
+                estilos.append("background-color: rgba(255, 213, 79, 0.18); font-weight: 600;")
+            else:
+                estilos.append("background-color: rgba(255, 82, 82, 0.16); font-weight: 600;")
         else:
             estilos.append("")
 
@@ -219,6 +236,10 @@ def inventario_general():
 
     st.divider()
 
+    st.caption(
+        "Azul: necesaria | Verde: completo/normal | Amarillo: parcial/bajo | Rojo: faltante/crítico"
+    )
+
     # ==================================================
     # VISTA DETALLE SAP
     # ==================================================
@@ -238,6 +259,8 @@ def inventario_general():
             lambda r: formato_excel(r["ctd_faltante"], r["unidad"]), axis=1
         )
 
+        vista["estado_stock"] = vista["cantidad_tomada"].apply(calcular_estado_stock)
+
         vista = vista.rename(columns={
             "proyecto": "Definición proyecto",
             "grafo": "Grafo",
@@ -255,20 +278,44 @@ def inventario_general():
             "storage_location": "Storage location",
             "existe_pedido": "Existe pedido",
             "movement_type": "Movement type",
-            "bodega": "Bodega"
+            "estado_stock": "Estado"
         })
 
-        columnas = [
-            "Definición proyecto", "Grafo", "Reserva", "Posición",
-            "Operación", "Material", "Texto material", "Batch",
-            "Cantidad necesaria", "Cantidad tomada", "Ctd.faltante",
-            "Unidad medida entrada", "Price/LCurrency",
-            "Storage location", "Existe pedido",
-            "Movement type", "Bodega"
+        vista = vista[
+            [
+                "Definición proyecto",
+                "Reserva",
+                "Material",
+                "Texto material",
+                "Cantidad necesaria",
+                "Cantidad tomada",
+                "Ctd.faltante",
+                "Unidad medida entrada",
+                "Estado",
+                "Bodega" if "Bodega" in vista.columns else "Definición proyecto"
+            ]
         ]
 
+        if "Bodega" not in vista.columns:
+            vista["Bodega"] = df_filtrado["bodega"].values
+            vista = vista[
+                [
+                    "Definición proyecto",
+                    "Reserva",
+                    "Material",
+                    "Texto material",
+                    "Cantidad necesaria",
+                    "Cantidad tomada",
+                    "Ctd.faltante",
+                    "Unidad medida entrada",
+                    "Estado",
+                    "Bodega"
+                ]
+            ]
+
+        st.markdown("### Inventario general")
         st.dataframe(
-            vista[columnas].style.apply(estilo_cantidades_detalle, axis=1),
+            vista.style.apply(estilo_cantidades_detalle, axis=1),
             use_container_width=True,
             hide_index=True
         )
@@ -286,7 +333,7 @@ def inventario_general():
             "cantidad_tomada": "sum"
         })
 
-        tabla["Estado"] = tabla["cantidad_tomada"].apply(calcular_estado_stock)
+        tabla["estado"] = tabla["cantidad_tomada"].apply(calcular_estado_stock)
 
         tabla["Total"] = tabla.apply(
             lambda r: formato_excel(r["cantidad_tomada"], r["unidad"]), axis=1
@@ -295,13 +342,15 @@ def inventario_general():
         tabla = tabla.rename(columns={
             "material": "Material",
             "texto_material": "Texto material",
-            "unidad": "Unidad medida entrada"
+            "unidad": "Unidad medida entrada",
+            "estado": "Estado"
         })
 
         tabla = tabla[
             ["Material", "Texto material", "Unidad medida entrada", "Total", "Estado"]
         ]
 
+        st.markdown("### Resumen consolidado")
         st.dataframe(
             tabla.style.apply(estilo_resumen, axis=1),
             use_container_width=True,
