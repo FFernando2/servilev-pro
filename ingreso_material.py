@@ -40,6 +40,18 @@ def formato_excel(valor, unidad):
 
 
 # --------------------------------------------------
+# LIMPIAR TEXTO
+# --------------------------------------------------
+def limpiar_texto(valor):
+    if valor is None:
+        return ""
+    texto = str(valor).strip()
+    if texto.lower() in ["nan", "none"]:
+        return ""
+    return texto
+
+
+# --------------------------------------------------
 # INGRESO MATERIAL
 # --------------------------------------------------
 def ingreso_material(bodega):
@@ -50,9 +62,8 @@ def ingreso_material(bodega):
     conn = conectar()
 
     try:
-
         # --------------------------------------------------
-        # TIPO INGRESO
+        # TIPO DE INGRESO
         # --------------------------------------------------
         opcion = st.radio(
             "Tipo de ingreso",
@@ -69,10 +80,14 @@ def ingreso_material(bodega):
             col1, col2 = st.columns(2)
 
             with col1:
-                proyecto = st.text_input("Proyecto", key="nuevo_proyecto")
+                proyecto = limpiar_texto(
+                    st.text_input("Proyecto", key="nuevo_proyecto")
+                )
 
             with col2:
-                reserva = st.text_input("Reserva", key="nueva_reserva")
+                reserva = limpiar_texto(
+                    st.text_input("Reserva", key="nueva_reserva")
+                )
 
         else:
             proyectos = pd.read_sql("""
@@ -83,12 +98,12 @@ def ingreso_material(bodega):
             """, conn, params=(bodega,))
 
             if proyectos.empty:
-                st.warning("No hay proyectos registrados")
+                st.warning("No hay proyectos registrados en esta bodega")
                 return
 
             proyecto = st.selectbox(
                 "Proyecto",
-                proyectos["proyecto"],
+                proyectos["proyecto"].astype(str).tolist(),
                 key="select_proyecto"
             )
 
@@ -96,21 +111,23 @@ def ingreso_material(bodega):
                 SELECT DISTINCT reserva
                 FROM trabajos
                 WHERE proyecto=%s AND bodega=%s
+                ORDER BY reserva
             """, conn, params=(proyecto, bodega))
 
             if reservas.empty:
-                st.warning("No hay reservas")
+                st.warning("No hay reservas registradas para este proyecto")
                 return
 
             reserva = st.selectbox(
                 "Reserva",
-                reservas["reserva"],
+                reservas["reserva"].astype(str).tolist(),
                 key="select_reserva"
             )
 
             resumen = pd.read_sql("""
-                SELECT COUNT(*) total,
-                SUM(CASE WHEN COALESCE(ctd_faltante,0)>0 THEN 1 ELSE 0 END) faltantes
+                SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN COALESCE(ctd_faltante,0) > 0 THEN 1 ELSE 0 END) AS faltantes
                 FROM inventario
                 WHERE proyecto=%s AND reserva=%s AND bodega=%s
             """, conn, params=(proyecto, reserva, bodega))
@@ -122,16 +139,21 @@ def ingreso_material(bodega):
         st.divider()
 
         # --------------------------------------------------
-        # CATALOGO
+        # CATALOGO DE MATERIALES
         # --------------------------------------------------
         catalogo = pd.read_sql("""
             SELECT DISTINCT material, texto_material, unidad
             FROM inventario
-            WHERE material <> ''
+            WHERE COALESCE(material, '') <> ''
+            ORDER BY material
         """, conn)
 
         if catalogo.empty:
-            catalogo = pd.DataFrame(columns=["material","texto_material","unidad"])
+            catalogo = pd.DataFrame(columns=["material", "texto_material", "unidad"])
+
+        catalogo["material"] = catalogo["material"].astype(str).fillna("").str.strip()
+        catalogo["texto_material"] = catalogo["texto_material"].astype(str).fillna("").str.strip()
+        catalogo["unidad"] = catalogo["unidad"].astype(str).fillna("").str.upper().str.strip()
 
         catalogo["display"] = catalogo["material"] + " | " + catalogo["texto_material"]
 
@@ -144,25 +166,37 @@ def ingreso_material(bodega):
             key="select_material"
         )
 
+        material = ""
+        texto_material = ""
+        unidad = ""
+
         if seleccion == "➕ Nuevo material":
 
             col1, col2, col3 = st.columns(3)
 
             with col1:
-                material = st.text_input("Código", key="nuevo_codigo")
+                material = limpiar_texto(
+                    st.text_input("Código", key="nuevo_codigo")
+                )
 
             with col2:
-                texto_material = st.text_input("Descripción", key="nuevo_desc")
+                texto_material = limpiar_texto(
+                    st.text_input("Descripción", key="nuevo_desc")
+                )
 
             with col3:
-                unidad = st.selectbox("Unidad", ["UN","KG","M"], key="nuevo_unidad")
+                unidad = st.selectbox(
+                    "Unidad",
+                    ["UN", "KG", "M"],
+                    key="nuevo_unidad"
+                )
 
         else:
             fila = catalogo[catalogo["display"] == seleccion].iloc[0]
 
-            material = str(fila["material"])
-            texto_material = str(fila["texto_material"])
-            unidad = str(fila["unidad"]).upper()
+            material = limpiar_texto(fila["material"])
+            texto_material = limpiar_texto(fila["texto_material"])
+            unidad = limpiar_texto(fila["unidad"]).upper()
 
             col1, col2, col3 = st.columns(3)
 
@@ -180,18 +214,37 @@ def ingreso_material(bodega):
             col1, col2, col3 = st.columns(3)
 
             with col1:
-                if unidad in ["KG","M"]:
-                    cantidad = st.number_input("Cantidad", 0.0, step=0.001, key="cantidad_float")
+                if unidad in ["KG", "M"]:
+                    cantidad = st.number_input(
+                        "Cantidad",
+                        min_value=0.0,
+                        step=0.001,
+                        format="%.3f",
+                        key="cantidad_float"
+                    )
                 else:
-                    cantidad = st.number_input("Cantidad", 1, key="cantidad_int")
+                    cantidad = st.number_input(
+                        "Cantidad",
+                        min_value=1,
+                        step=1,
+                        key="cantidad_int"
+                    )
 
             with col2:
-                fecha = st.date_input("Fecha", value=date.today(), key="fecha_ingreso")
+                fecha = st.date_input(
+                    "Fecha",
+                    value=date.today(),
+                    key="fecha_ingreso"
+                )
 
             with col3:
-                responsable = st.text_input("Responsable", key="responsable")
+                responsable = limpiar_texto(
+                    st.text_input("Responsable", key="responsable")
+                )
 
-            documento = st.text_input("Documento", key="documento")
+            documento = limpiar_texto(
+                st.text_input("Documento", key="documento")
+            )
 
             st.markdown("### Resumen")
 
@@ -199,87 +252,185 @@ def ingreso_material(bodega):
             x1.metric("Proyecto", proyecto or "-")
             x2.metric("Reserva", reserva or "-")
             x3.metric("Material", material or "-")
-            x4.metric("Cantidad", formato_excel(cantidad, unidad))
+            x4.metric("Cantidad", formato_excel(cantidad, unidad or "UN"))
 
-            submit = st.form_submit_button("Registrar ingreso")
+            submit = st.form_submit_button("Registrar ingreso", use_container_width=True)
 
         # --------------------------------------------------
         # GUARDAR
         # --------------------------------------------------
         if submit:
 
-            if not proyecto or not reserva:
-                st.warning("Ingrese proyecto y reserva")
+            if not proyecto:
+                st.warning("Debe ingresar o seleccionar un proyecto")
+                return
+
+            if not reserva:
+                st.warning("Debe ingresar o seleccionar una reserva")
                 return
 
             if not material:
-                st.warning("Material inválido")
+                st.warning("Debe ingresar o seleccionar un material")
+                return
+
+            if not texto_material:
+                st.warning("Debe ingresar la descripción del material")
+                return
+
+            if not unidad:
+                st.warning("Debe indicar la unidad")
                 return
 
             if float(cantidad) <= 0:
-                st.warning("Cantidad inválida")
+                st.warning("La cantidad debe ser mayor a 0")
                 return
 
             c = conn.cursor()
 
-            # TRABAJO
+            # --------------------------------------------------
+            # CREAR TRABAJO SI NO EXISTE
+            # --------------------------------------------------
             c.execute("""
-                INSERT INTO trabajos (proyecto,reserva,bodega)
-                VALUES (%s,%s,%s)
-                ON CONFLICT DO NOTHING
-            """,(proyecto,reserva,bodega))
+                SELECT id
+                FROM trabajos
+                WHERE proyecto=%s AND reserva=%s AND bodega=%s
+            """, (proyecto, reserva, bodega))
 
-            # INGRESO
+            trabajo = c.fetchone()
+
+            if not trabajo:
+                c.execute("""
+                    INSERT INTO trabajos (proyecto, reserva, bodega)
+                    VALUES (%s, %s, %s)
+                """, (proyecto, reserva, bodega))
+
+            # --------------------------------------------------
+            # REGISTRAR INGRESO
+            # --------------------------------------------------
             c.execute("""
                 INSERT INTO ingresos
-                (fecha,proyecto,reserva,material,texto_material,
-                 unidad,cantidad,documento,responsable,bodega)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """,(
-                str(fecha),proyecto,reserva,material,
-                texto_material,unidad,cantidad,
-                documento,responsable,bodega
+                (
+                    fecha,
+                    proyecto,
+                    reserva,
+                    material,
+                    texto_material,
+                    unidad,
+                    cantidad,
+                    documento,
+                    responsable,
+                    bodega
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                str(fecha),
+                proyecto,
+                reserva,
+                material,
+                texto_material,
+                unidad,
+                float(cantidad),
+                documento,
+                responsable,
+                bodega
             ))
 
-            # MOVIMIENTO
+            # --------------------------------------------------
+            # REGISTRAR MOVIMIENTO
+            # --------------------------------------------------
             c.execute("""
                 INSERT INTO movimientos
-                (fecha,tipo,proyecto,reserva,material,
-                 texto_material,unidad,cantidad,usuario,bodega)
-                VALUES (%s,'INGRESO',%s,%s,%s,%s,%s,%s,%s,%s)
-            """,(
-                str(fecha),proyecto,reserva,material,
-                texto_material,unidad,cantidad,
-                responsable or "Sistema",bodega
+                (
+                    fecha,
+                    tipo,
+                    proyecto,
+                    reserva,
+                    material,
+                    texto_material,
+                    unidad,
+                    cantidad,
+                    usuario,
+                    bodega
+                )
+                VALUES (%s, 'INGRESO', %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                str(fecha),
+                proyecto,
+                reserva,
+                material,
+                texto_material,
+                unidad,
+                float(cantidad),
+                responsable or "Sistema",
+                bodega
             ))
 
-            # INVENTARIO
+            # --------------------------------------------------
+            # ACTUALIZAR INVENTARIO
+            # --------------------------------------------------
             c.execute("""
-                SELECT id,cantidad_tomada,cantidad_necesaria
+                SELECT id, cantidad_tomada, cantidad_necesaria
                 FROM inventario
-                WHERE proyecto=%s AND reserva=%s AND material=%s AND bodega=%s
+                WHERE proyecto=%s
+                  AND reserva=%s
+                  AND material=%s
+                  AND bodega=%s
+                ORDER BY id
                 LIMIT 1
-            """,(proyecto,reserva,material,bodega))
+            """, (proyecto, reserva, material, bodega))
 
-            fila = c.fetchone()
+            fila_inv = c.fetchone()
 
-            if fila:
-                nueva = float(fila[1] or 0) + float(cantidad)
-                faltante = max(float(fila[2] or 0) - nueva, 0)
+            if fila_inv:
+                inventario_id = fila_inv[0]
+                cantidad_tomada_actual = float(fila_inv[1] or 0)
+                cantidad_necesaria_actual = float(fila_inv[2] or 0)
+
+                nueva_cantidad_tomada = cantidad_tomada_actual + float(cantidad)
+                nuevo_faltante = max(cantidad_necesaria_actual - nueva_cantidad_tomada, 0)
 
                 c.execute("""
                     UPDATE inventario
-                    SET cantidad_tomada=%s,ctd_faltante=%s
+                    SET
+                        texto_material=%s,
+                        unidad=%s,
+                        cantidad_tomada=%s,
+                        ctd_faltante=%s
                     WHERE id=%s
-                """,(nueva,faltante,fila[0]))
+                """, (
+                    texto_material,
+                    unidad,
+                    nueva_cantidad_tomada,
+                    nuevo_faltante,
+                    inventario_id
+                ))
 
             else:
                 c.execute("""
                     INSERT INTO inventario
-                    (proyecto,reserva,material,texto_material,unidad,
-                     cantidad_necesaria,cantidad_tomada,ctd_faltante,bodega)
-                    VALUES (%s,%s,%s,%s,%s,0,%s,0,%s)
-                """,(proyecto,reserva,material,texto_material,unidad,cantidad,bodega))
+                    (
+                        proyecto,
+                        reserva,
+                        material,
+                        texto_material,
+                        unidad,
+                        cantidad_necesaria,
+                        cantidad_tomada,
+                        ctd_faltante,
+                        bodega
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    proyecto,
+                    reserva,
+                    material,
+                    texto_material,
+                    unidad,
+                    0,
+                    float(cantidad),
+                    0,
+                    bodega
+                ))
 
             conn.commit()
             st.success("Ingreso registrado correctamente")
