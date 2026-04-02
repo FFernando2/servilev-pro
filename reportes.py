@@ -6,6 +6,9 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 
 
+# --------------------------------------------------
+# FORMATO NUMEROS TIPO EXCEL / SAP
+# --------------------------------------------------
 def formato_excel(valor, unidad):
     try:
         unidad = str(unidad).strip().upper()
@@ -18,6 +21,9 @@ def formato_excel(valor, unidad):
         return "0"
 
 
+# --------------------------------------------------
+# CONVERTIR COLUMNAS NUMERICAS
+# --------------------------------------------------
 def convertir_numerico(df, columnas):
     df = df.copy()
     for col in columnas:
@@ -26,6 +32,9 @@ def convertir_numerico(df, columnas):
     return df
 
 
+# --------------------------------------------------
+# APLICAR FILTROS BASICOS
+# --------------------------------------------------
 def aplicar_filtros_basicos(df, buscar="", fecha_inicio=None, fecha_fin=None):
     df_filtrado = df.copy()
 
@@ -57,6 +66,9 @@ def aplicar_filtros_basicos(df, buscar="", fecha_inicio=None, fecha_fin=None):
     return df_filtrado
 
 
+# --------------------------------------------------
+# CALCULAR STOCK
+# --------------------------------------------------
 def calcular_stock(conn, bodega):
     ingresos = pd.read_sql_query("""
         SELECT 
@@ -93,6 +105,9 @@ def calcular_stock(conn, bodega):
     return stock
 
 
+# --------------------------------------------------
+# PREPARAR VISTA FORMATEADA
+# --------------------------------------------------
 def preparar_vista_formateada(df):
     df_mostrar = df.copy()
 
@@ -113,6 +128,45 @@ def preparar_vista_formateada(df):
     return df_mostrar
 
 
+# --------------------------------------------------
+# ESTILO PARA STOCK
+# --------------------------------------------------
+def estilo_stock(row):
+    estilos = []
+
+    try:
+        stock_val = float(row["Stock_num"])
+    except:
+        return [""] * len(row)
+
+    for col in row.index:
+        if col == "Total ingreso":
+            estilos.append("background-color: rgba(79, 195, 247, 0.12); font-weight: 600;")
+        elif col == "Total salida":
+            estilos.append("background-color: rgba(255, 213, 79, 0.18); font-weight: 600;")
+        elif col == "Stock":
+            if stock_val <= 5:
+                estilos.append("background-color: rgba(255, 82, 82, 0.16); font-weight: 700;")
+            elif stock_val <= 10:
+                estilos.append("background-color: rgba(255, 213, 79, 0.18); font-weight: 700;")
+            else:
+                estilos.append("background-color: rgba(0, 230, 118, 0.14); font-weight: 700;")
+        elif col == "Estado":
+            if str(row["Estado"]) == "Crítico":
+                estilos.append("background-color: rgba(255, 82, 82, 0.16); font-weight: 600;")
+            elif str(row["Estado"]) == "Bajo":
+                estilos.append("background-color: rgba(255, 213, 79, 0.18); font-weight: 600;")
+            else:
+                estilos.append("background-color: rgba(0, 230, 118, 0.14); font-weight: 600;")
+        else:
+            estilos.append("")
+
+    return estilos
+
+
+# --------------------------------------------------
+# EXPORTAR EXCEL
+# --------------------------------------------------
 def exportar_excel(df, titulo, nombre_archivo, bodega):
     buffer = io.BytesIO()
 
@@ -231,8 +285,11 @@ def exportar_excel(df, titulo, nombre_archivo, bodega):
     )
 
 
+# --------------------------------------------------
+# FUNCION PRINCIPAL
+# --------------------------------------------------
 def reportes(bodega):
-    st.title(f"📊 Reportes del Sistema - Bodega {bodega}")
+    st.title(f"Reportes del Sistema - Bodega {bodega}")
 
     conn = conectar()
 
@@ -285,17 +342,17 @@ def reportes(bodega):
             stock_total = total_ingresos - total_salidas
 
             col1, col2, col3, col4 = st.columns(4)
-            col1.metric("📥 Ingresos", f"{total_ingresos:,.3f}")
-            col2.metric("📤 Salidas", f"{total_salidas:,.3f}")
-            col3.metric("📦 Stock neto", f"{stock_total:,.3f}")
-            col4.metric("📄 Reservas", int(inventario["reserva"].nunique()) if not inventario.empty else 0)
+            col1.metric("Ingresos", f"{total_ingresos:,.3f}")
+            col2.metric("Salidas", f"{total_salidas:,.3f}")
+            col3.metric("Stock neto", f"{stock_total:,.3f}")
+            col4.metric("Reservas", int(inventario["reserva"].nunique()) if not inventario.empty else 0)
 
             st.divider()
 
             col1, col2 = st.columns(2)
 
             with col1:
-                st.subheader("Top Ingresos")
+                st.subheader("Top ingresos")
                 if not ingresos_res.empty:
                     top_ing = ingresos_res.groupby("material")["cantidad"].sum().sort_values(ascending=False).head(5)
                     fig, ax = plt.subplots(figsize=(6, 3))
@@ -308,7 +365,7 @@ def reportes(bodega):
                     st.info("No hay ingresos en el rango seleccionado")
 
             with col2:
-                st.subheader("Top Salidas")
+                st.subheader("Top salidas")
                 if not salidas_res.empty:
                     top_sal = salidas_res.groupby("material")["cantidad"].sum().sort_values(ascending=False).head(5)
                     fig, ax = plt.subplots(figsize=(6, 3))
@@ -325,6 +382,7 @@ def reportes(bodega):
         # =========================================================
         with tab2:
             st.subheader("Control total de inventario")
+            st.caption("Azul: ingreso | Amarillo: salida | Verde: normal | Rojo: crítico")
 
             stock = calcular_stock(conn, bodega)
 
@@ -346,11 +404,11 @@ def reportes(bodega):
 
                     def estado(val):
                         if val <= 5:
-                            return "🔴 Crítico"
+                            return "Crítico"
                         elif val <= 10:
-                            return "🟠 Bajo"
+                            return "Bajo"
                         else:
-                            return "🟢 Normal"
+                            return "Normal"
 
                     stock["estado"] = stock["stock"].apply(estado)
 
@@ -363,6 +421,8 @@ def reportes(bodega):
                     c3.metric("Bajos", len(bajos))
 
                     stock_mostrar = stock.copy()
+                    stock_mostrar["Stock_num"] = stock_mostrar["stock"]
+
                     stock_mostrar["total_ingreso"] = stock_mostrar.apply(
                         lambda r: formato_excel(r["total_ingreso"], r["unidad"]),
                         axis=1
@@ -386,19 +446,21 @@ def reportes(bodega):
                         "estado": "Estado"
                     })
 
+                    stock_mostrar = stock_mostrar[
+                        ["Material", "Texto material", "Unidad", "Total ingreso", "Total salida", "Stock", "Estado", "Stock_num"]
+                    ]
+
                     st.dataframe(
-                        stock_mostrar[
-                            ["Material", "Texto material", "Unidad", "Total ingreso", "Total salida", "Stock", "Estado"]
-                        ],
+                        stock_mostrar.style.apply(estilo_stock, axis=1).hide(axis="columns", subset=["Stock_num"]),
                         use_container_width=True,
                         hide_index=True
                     )
 
                     if not criticos.empty:
-                        st.error(f"⚠️ {len(criticos)} materiales en estado crítico")
+                        st.error(f"{len(criticos)} materiales en estado crítico")
 
                     if not bajos.empty:
-                        st.warning(f"⚠️ {len(bajos)} materiales con stock bajo")
+                        st.warning(f"{len(bajos)} materiales con stock bajo")
 
                     st.divider()
 
